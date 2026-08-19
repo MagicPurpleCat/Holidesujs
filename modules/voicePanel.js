@@ -282,7 +282,6 @@ export async function handleVoicePanelButtons(interaction) {
       });
     }
 
-    // Находим голосовой канал
     const voiceChannel = guild.channels.cache.get(room.voice_channel_id);
     if (!voiceChannel) {
       return interaction.reply({
@@ -291,12 +290,18 @@ export async function handleVoicePanelButtons(interaction) {
       });
     }
 
-    // Строим панель управления комнатой (embed + кнопки)
-    const { buildRoomPanel } = await import('../commands/room-settings.js');
-    const panel = buildRoomPanel(room, voiceChannel);
+    const { publishRoomPanel } = await import('../commands/room-settings.js');
+    const panelMessage = await publishRoomPanel(guild, room, voiceChannel);
+
+    if (!panelMessage) {
+      return interaction.reply({
+        content: '❌ **Не удалось отправить панель** в чат голосового канала. Проверь права бота или вызови `/room-settings`.',
+        flags: MessageFlags.Ephemeral,
+      });
+    }
 
     await interaction.reply({
-      ...panel,
+      content: `✅ **Панель управления** опубликована в чате ${voiceChannel}. Открой голосовой канал и управляй комнатой там.`,
       flags: MessageFlags.Ephemeral,
     });
     return true;

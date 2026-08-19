@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 import { getUser } from '../database.js';
 import { DEFAULT_LEVEL_ROLES, getGuildConfig } from '../utils/guildConfig.js';
+import { COLOR, fmtNum, guildFooter, xpBar } from '../utils/ui.js';
 
 function getLevelRoleMap(guildId) {
   if (!guildId) return DEFAULT_LEVEL_ROLES;
@@ -144,7 +145,7 @@ export async function removeLevelRole(member, roleId) {
 export default {
   data: new SlashCommandBuilder()
     .setName('rank')
-    .setDescription('Показывает твой уровень и прогресс XP')
+    .setDescription('Уровень, XP и роль за отметку')
     .addUserOption((opt) =>
       opt.setName('user').setDescription('Посмотреть уровень другого пользователя').setRequired(false)
     ),
@@ -175,40 +176,35 @@ export default {
       roleDisplay = roleId ? `<@&${roleId}>` : 'Нет';
     }
 
-    // Прогресс-бар: 10 сегментов (■ ▓ ▒ ░)
-    const filled = Math.floor(progressPercent / 10);
-    const empty = 10 - filled;
-    const progressBar = '█'.repeat(filled) + '░'.repeat(empty);
-
     const embed = new EmbedBuilder()
-      .setColor(member?.displayHexColor ?? 0x5865f2)
-      .setTitle(`📊 Ранг — ${target.displayName}`)
+      .setColor(member?.displayHexColor && member.displayHexColor !== '#000000' ? member.displayHexColor : COLOR.accent)
+      .setTitle(target.displayName)
       .setThumbnail(target.displayAvatarURL({ size: 256 }))
       .addFields(
         {
-          name: '🎚 Уровень',
+          name: 'Уровень',
           value: `**${currentLevel}**`,
           inline: true,
         },
         {
-          name: '⚡ Всего XP',
-          value: `**${user.xp}**`,
+          name: 'Всего XP',
+          value: `**${fmtNum(user.total_xp || user.xp)}**`,
           inline: true,
         },
         {
-          name: '🎭 Текущая роль',
+          name: 'Роль',
           value: roleDisplay,
           inline: true,
         },
         {
-          name: '📈 Прогресс',
+          name: 'Прогресс',
           value: currentLevel >= maxLevel
-            ? '**Максимальный уровень!** 🏆'
-            : `${progressBar} **${progressPercent}%**\n\`${currentXp} / ${xpForNext} XP\``,
+            ? 'Максимальный уровень'
+            : `${xpBar(progressPercent)}\n**${progressPercent}%** · \`${fmtNum(currentXp)} / ${fmtNum(xpForNext)} XP\``,
           inline: false,
         },
       )
-      .setFooter({ text: 'Зарабатывай XP в голосовых каналах и за сообщения!' })
+      .setFooter({ text: guildFooter(interaction, 'XP за войса и сообщения') });
 
     await interaction.reply({ embeds: [embed] });
   },

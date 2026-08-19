@@ -35,4 +35,8 @@ test('commandFeatureKey: игровые команды привязаны к ф�
   assert.equal(commandFeatureKey('pay'), 'economy');
   assert.equal(commandFeatureKey('mod'), 'moderation');
   assert.equal(commandFeatureKey('marry'), 'marriages');
+  assert.equal(commandFeatureKey('work'), 'economy');
+  assert.equal(commandFeatureKey('квесты'), 'dailyQuests');
+  assert.equal(commandFeatureKey('ticket'), 'tickets');
+  assert.equal(commandFeatureKey('giveaway'), 'giveaways');
 });

@@ -503,6 +503,78 @@ export function initDatabase() {
   migrateUsersGuildScope();
   ensurePunishmentsGuildColumn();
   migrateCasinoStatsGuildScope();
+  ensureNewProgressColumns();
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS daily_quests (
+      guild_id TEXT NOT NULL DEFAULT '',
+      user_id TEXT NOT NULL,
+      day_key TEXT NOT NULL,
+      messages INTEGER NOT NULL DEFAULT 0,
+      voice_minutes INTEGER NOT NULL DEFAULT 0,
+      casino_bets INTEGER NOT NULL DEFAULT 0,
+      claimed INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (guild_id, user_id, day_key)
+    );
+    CREATE TABLE IF NOT EXISTS daily_streaks (
+      guild_id TEXT NOT NULL DEFAULT '',
+      user_id TEXT NOT NULL,
+      streak INTEGER NOT NULL DEFAULT 0,
+      last_claim_day TEXT DEFAULT NULL,
+      PRIMARY KEY (guild_id, user_id)
+    );
+    CREATE TABLE IF NOT EXISTS family_bank (
+      guild_id TEXT NOT NULL DEFAULT '',
+      user_a TEXT NOT NULL,
+      user_b TEXT NOT NULL,
+      balance INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (guild_id, user_a, user_b)
+    );
+    CREATE TABLE IF NOT EXISTS user_cosmetics (
+      guild_id TEXT NOT NULL DEFAULT '',
+      user_id TEXT NOT NULL,
+      item_id TEXT NOT NULL,
+      purchased_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (guild_id, user_id, item_id)
+    );
+    CREATE TABLE IF NOT EXISTS achievements (
+      guild_id TEXT NOT NULL DEFAULT '',
+      user_id TEXT NOT NULL,
+      key TEXT NOT NULL,
+      unlocked_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (guild_id, user_id, key)
+    );
+    CREATE TABLE IF NOT EXISTS tickets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      guild_id TEXT NOT NULL,
+      channel_id TEXT NOT NULL UNIQUE,
+      opener_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS giveaways (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      guild_id TEXT NOT NULL,
+      channel_id TEXT NOT NULL,
+      message_id TEXT NOT NULL DEFAULT '',
+      host_id TEXT NOT NULL,
+      prize TEXT NOT NULL,
+      cost INTEGER NOT NULL DEFAULT 0,
+      ends_at INTEGER NOT NULL,
+      winner_id TEXT DEFAULT NULL,
+      status TEXT NOT NULL DEFAULT 'running'
+    );
+    CREATE TABLE IF NOT EXISTS giveaway_entries (
+      giveaway_id INTEGER NOT NULL,
+      user_id TEXT NOT NULL,
+      PRIMARY KEY (giveaway_id, user_id)
+    );
+    CREATE TABLE IF NOT EXISTS season_state (
+      guild_id TEXT PRIMARY KEY,
+      week_key TEXT NOT NULL,
+      paid_week TEXT DEFAULT NULL
+    );
+  `);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS ephemeral_state (
@@ -636,6 +708,37 @@ function migrateUsersGuildScope() {
 
   stmtCache.clear();
   console.log('[DB] Migrated users to guild-scoped economy.');
+}
+
+function ensureNewProgressColumns() {
+  if (!tableExists('users')) return;
+  const info = db.prepare("PRAGMA table_info('users')").all();
+  const names = new Set(info.map((c) => c.name));
+  const add = (name, ddl) => {
+    if (names.has(name)) return;
+    db.exec(`ALTER TABLE users ADD COLUMN ${ddl}`);
+    names.add(name);
+  };
+  add('season_xp', 'season_xp INTEGER NOT NULL DEFAULT 0');
+  add('season_messages', 'season_messages INTEGER NOT NULL DEFAULT 0');
+  add('season_voice', 'season_voice INTEGER NOT NULL DEFAULT 0');
+  add('last_work_at', 'last_work_at TEXT DEFAULT NULL');
+  add('equipped_frame', 'equipped_frame TEXT DEFAULT NULL');
+  add('equipped_background', 'equipped_background TEXT DEFAULT NULL');
+
+  if (tableExists('clans')) {
+    const clanInfo = db.prepare("PRAGMA table_info('clans')").all();
+    const clanNames = new Set(clanInfo.map((c) => c.name));
+    if (!clanNames.has('farm_boost_until')) {
+      db.exec('ALTER TABLE clans ADD COLUMN farm_boost_until TEXT DEFAULT NULL');
+    }
+    if (!clanNames.has('show_tag')) {
+      db.exec('ALTER TABLE clans ADD COLUMN show_tag INTEGER NOT NULL DEFAULT 0');
+    }
+    if (!clanNames.has('discord_role_id')) {
+      db.exec('ALTER TABLE clans ADD COLUMN discord_role_id TEXT DEFAULT NULL');
+    }
+  }
 }
 
 function migrateClansGuildScope() {
@@ -836,7 +939,8 @@ export function addXp(userId, amount, guildId = '') {
   let currentXp = user.xp + amount;
   let currentLevel = user.level;
 
-  db.prepare('UPDATE users SET total_xp = total_xp + ? WHERE guild_id = ? AND user_id = ?').run(amount, g, userId);
+  db.prepare('UPDATE users SET total_xp = total_xp + ?, season_xp = COALESCE(season_xp, 0) + ? WHERE guild_id = ? AND user_id = ?')
+    .run(amount, amount, g, userId);
 
   while (currentLevel < 100) {
     const xpForNextLevel = currentLevel * 100;

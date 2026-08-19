@@ -675,7 +675,7 @@ export async function handleSetupInteraction(interaction) {
 export default {
   data: new SlashCommandBuilder()
     .setName('setup')
-    .setDescription('🛠 Настройте сервер: владелец, админы, каналы')
+    .setDescription('Мастер: владелец, админы, каналы сервера')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild) // Только с правами ManageGuild
     .setDMPermission(false), // Запрещаем в ЛС — команда только для серверов
 

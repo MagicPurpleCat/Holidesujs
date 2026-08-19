@@ -20,6 +20,13 @@ import moderationCmd from './moderation.js';
 import repCmd, { repAlias } from './rep.js';
 import payCmd from './pay.js';
 import featuresCmd from './features.js';
+import questsCmd from './quests.js';
+import workCmd from './work.js';
+import familyCmd from './family.js';
+import ticketCmd from './ticket.js';
+import giveawayCmd from './giveaway.js';
+import cosmeticsCmd, { cosmeticsAlias } from './cosmetics.js';
+import seasonCmd from './season.js';
 
 export const allCommands = [
   balanceCmd, shopCmd, profileCmd, casinoCmd, clanCmd,
@@ -28,4 +35,6 @@ export const allCommands = [
   marryCmd, divorceAlias, roleCmd, historyCmd, settingsCmd,
   memeGenCmd, setupCmd, roomSettingsCmd, logsCmd,
   moderationCmd, repCmd, repAlias, payCmd, featuresCmd,
+  questsCmd, workCmd, familyCmd, ticketCmd, giveawayCmd,
+  cosmeticsCmd, cosmeticsAlias, seasonCmd,
 ];

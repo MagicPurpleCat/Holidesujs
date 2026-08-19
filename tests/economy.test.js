@@ -149,3 +149,69 @@ test('покупка в магазине не проходит без денег
   assert.equal(removeCoins('u-shop', 30, 'g-shop'), true);
   assert.equal(getUser('u-shop', 'g-shop').balance, 70);
 });
+
+test('ежедневные квесты выдают награду один раз', async () => {
+  const { bumpQuest, claimDailyQuest, utcDayKey } = await import('../modules/progress.js');
+  const g = 'g-quest';
+  const u = 'u-quest';
+  ensureUser(u, g);
+  bumpQuest(u, g, 'messages', 15);
+  bumpQuest(u, g, 'voice_minutes', 10);
+  bumpQuest(u, g, 'casino_bets', 1);
+  const first = claimDailyQuest(u, g);
+  assert.equal(first.ok, true);
+  assert.ok(first.reward >= 150);
+  const second = claimDailyQuest(u, g);
+  assert.equal(second.ok, false);
+  const row = getDb().prepare(
+    'SELECT claimed FROM daily_quests WHERE guild_id = ? AND user_id = ? AND day_key = ?',
+  ).get(g, u, utcDayKey());
+  assert.equal(row.claimed, 1);
+});
+
+test('семейный банк делится пополам', async () => {
+  const { getOrCreateFamilyBank, splitFamilyBank } = await import('../modules/progress.js');
+  const g = 'g-fam';
+  ensureUser('a-fam', g);
+  ensureUser('b-fam', g);
+  getOrCreateFamilyBank(g, 'a-fam', 'b-fam');
+  getDb().prepare('UPDATE family_bank SET balance = 100 WHERE guild_id = ?').run(g);
+  const beforeA = getUser('a-fam', g).balance;
+  const beforeB = getUser('b-fam', g).balance;
+  const result = splitFamilyBank(g, 'a-fam', 'b-fam');
+  assert.equal(result.each, 50);
+  assert.equal(getUser('a-fam', g).balance, beforeA + 50);
+  assert.equal(getUser('b-fam', g).balance, beforeB + 50);
+});
+
+test('достижения и косметика пишутся один раз', async () => {
+  const { unlockAchievement, grantCosmetic, ownsCosmetic, listAchievements } = await import('../modules/progress.js');
+  const g = 'g-ach';
+  const u = 'u-ach';
+  ensureUser(u, g);
+  assert.equal(unlockAchievement(u, g, 'rich_10k'), true);
+  assert.equal(unlockAchievement(u, g, 'rich_10k'), false);
+  assert.equal(listAchievements(u, g).length, 1);
+  grantCosmetic(u, g, 'frame_gold');
+  grantCosmetic(u, g, 'frame_gold');
+  assert.equal(ownsCosmetic(u, g, 'frame_gold'), true);
+});
+
+test('сезонный рейтинг считает XP, сообщения и голос', async () => {
+  const { getSeasonTop, seasonScore, resetSeasonCounters } = await import('../modules/progress.js');
+  const g = 'g-season';
+  ensureUser('u-s1', g);
+  ensureUser('u-s2', g);
+  getDb().prepare(
+    'UPDATE users SET season_xp = ?, season_messages = ?, season_voice = ? WHERE guild_id = ? AND user_id = ?',
+  ).run(100, 10, 20, g, 'u-s1');
+  getDb().prepare(
+    'UPDATE users SET season_xp = ?, season_messages = ?, season_voice = ? WHERE guild_id = ? AND user_id = ?',
+  ).run(10, 2, 1, g, 'u-s2');
+  const top = getSeasonTop(g, 10);
+  assert.equal(top[0].user_id, 'u-s1');
+  assert.ok(seasonScore(top[0]) > seasonScore(top[1]));
+  resetSeasonCounters(g);
+  const after = getSeasonTop(g, 10);
+  assert.equal(seasonScore(after[0] || {}), 0);
+});

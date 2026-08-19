@@ -1,5 +1,7 @@
-import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
-import { getDb, ensureUser, removeCoins, addCoins, runInTransaction } from '../database.js';
+import { SlashCommandBuilder, EmbedBuilder, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import { getDb, ensureUser, removeCoins, addCoins, runInTransaction, setEphemeral, getEphemeral, deleteEphemeral } from '../database.js';
+import { bumpQuest, unlockAchievement, checkEconomyAchievements } from '../modules/progress.js';
+import { COLOR, fmtHld } from '../utils/ui.js';
 
 // Символы для слот-машины
 const SLOT_SYMBOLS = ['🍒', '🍋', '🍊', '🍇', '💎', '7️⃣', '⭐', '🔔'];
@@ -37,12 +39,15 @@ function recordCasinoResult(db, userId, guildId, { bet, winAmount, slot = false 
       `).run(g, userId, bet, won, lost);
     }
   });
+  bumpQuest(userId, g, 'casino_bets', 1);
+  if (winAmount > 0) unlockAchievement(userId, g, 'casino_win');
+  checkEconomyAchievements(userId, g);
 }
 
 export default {
   data: new SlashCommandBuilder()
     .setName('casino')
-    .setDescription('🎰 Игровые мини-игры')
+    .setDescription('Daily, слоты, орёл/решка и блэкджек')
     .addSubcommand((sub) =>
       sub.setName('daily').setDescription('Забрать ежедневный бонус (200 ⚡HLD)')
     )
@@ -70,6 +75,14 @@ export default {
               { name: '🦅 Решка (tails)', value: 'tails' }
             )
         )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('blackjack')
+        .setDescription('Блэкджек: набери 21')
+        .addIntegerOption((opt) =>
+          opt.setName('bet').setDescription('Ставка (макс. 10000)').setRequired(true).setMinValue(10).setMaxValue(10000)
+        )
     ),
 
   async execute(interaction) {
@@ -86,6 +99,8 @@ export default {
         return handleSlot(interaction, userId, db, guildId);
       } else if (sub === 'coinflip') {
         return handleCoinflip(interaction, userId, db, guildId);
+      } else if (sub === 'blackjack') {
+        return handleBlackjack(interaction, userId, db, guildId);
       }
     } catch (error) {
       console.error('[CASINO] Ошибка:', error);
@@ -135,13 +150,14 @@ async function handleDaily(interaction, userId, db, guildId) {
   }
 
   const embed = new EmbedBuilder()
-    .setColor(0xf1c40f)
-    .setTitle('🎰 Ежедневный бонус')
-    .setDescription(`Ты получил **${dailyAmount} ⚡HLD**!`)
+    .setColor(COLOR.gold)
+    .setTitle('Ежедневный бонус')
+    .setDescription(`На счёт капнуло ${fmtHld(dailyAmount)}`)
     .addFields(
-      { name: '💰 Новый баланс', value: `**${user.balance + dailyAmount} ⚡HLD**`, inline: true },
-      { name: '⏰ Следующий бонус', value: 'Через **24 часа**', inline: true },
+      { name: 'Баланс', value: fmtHld(user.balance + dailyAmount), inline: true },
+      { name: 'Следующий', value: 'через 24 часа', inline: true },
     )
+    .setFooter({ text: 'Holidesu · casino daily' });
 
   await interaction.reply({ embeds: [embed] });
 }
@@ -167,7 +183,14 @@ async function handleSlot(interaction, userId, db, guildId) {
   }
 
   // Анимация: "крутим барабан"
-  await interaction.reply({ content: '🎲 **Крутим барабан...** 🎲' });
+  await interaction.reply({
+    embeds: [
+      new EmbedBuilder()
+        .setColor(COLOR.accent)
+        .setTitle('Слоты')
+        .setDescription('Барабан крутится…'),
+    ],
+  });
 
   // Задержка для анимации
   await new Promise((resolve) => setTimeout(resolve, 1500));
@@ -215,17 +238,17 @@ async function handleSlot(interaction, userId, db, guildId) {
   const updatedUser = db.prepare('SELECT balance FROM users WHERE guild_id = ? AND user_id = ?').get(guildId, userId);
 
   const embed = new EmbedBuilder()
-    .setColor(winAmount > 0 ? 0x2ecc71 : 0xe74c3c)
-    .setTitle(winAmount > 0 ? '🎉 **ДЖЕКПОТ!** 🎉' : '😔 Не повезло...')
-    .setDescription(`**${reels.join(' | ')}**`)
+    .setColor(winAmount > 0 ? COLOR.success : COLOR.danger)
+    .setTitle(winAmount > 0 ? 'Джекпот' : 'Мимо')
+    .setDescription(`**${reels.join('   ')}**`)
     .addFields(
-      { name: '💰 Ставка', value: `**${bet} ⚡HLD**`, inline: true },
-      { name: winAmount > 0 ? '🏆 Выигрыш' : '💸 Проигрыш',
-        value: winAmount > 0 ? `**+${winAmount} ⚡HLD**` : `**-${Math.abs(winAmount)} ⚡HLD**`,
+      { name: 'Ставка', value: fmtHld(bet), inline: true },
+      { name: winAmount > 0 ? 'Выигрыш' : 'Проигрыш',
+        value: winAmount > 0 ? `+${fmtHld(winAmount)}` : `−${fmtHld(Math.abs(winAmount))}`,
         inline: true },
-      { name: '💳 Баланс', value: `**${updatedUser.balance} ⚡HLD**`, inline: true },
+      { name: 'Баланс', value: fmtHld(updatedUser.balance), inline: true },
     )
-    .setFooter({ text: hasVipBoost ? 'VIP +20% только на три одинаковых символа' : 'Пара даёт x1.5. VIP — только на джекпот.' })
+    .setFooter({ text: hasVipBoost ? 'Holidesu · VIP +20% на три одинаковых' : 'Holidesu · пара ×1.5 · три ×5' });
 
   await interaction.editReply({ content: null, embeds: [embed] });
 }
@@ -251,7 +274,14 @@ async function handleCoinflip(interaction, userId, db, guildId) {
     });
   }
 
-  await interaction.reply({ content: '🪙 **Подбрасываем монетку...** 🪙' });
+  await interaction.reply({
+    embeds: [
+      new EmbedBuilder()
+        .setColor(COLOR.gold)
+        .setTitle('Монетка')
+        .setDescription('В воздухе…'),
+    ],
+  });
   await new Promise((resolve) => setTimeout(resolve, 1500));
 
   const result = Math.random() < 0.5 ? 'heads' : 'tails';
@@ -276,21 +306,199 @@ async function handleCoinflip(interaction, userId, db, guildId) {
   const updatedUser = db.prepare('SELECT balance FROM users WHERE guild_id = ? AND user_id = ?').get(guildId, userId);
 
   const embed = new EmbedBuilder()
-    .setColor(win ? 0x2ecc71 : 0xe74c3c)
-    .setTitle(win ? '🎉 **Победа!** 🎉' : '😔 Проигрыш')
+    .setColor(win ? COLOR.success : COLOR.danger)
+    .setTitle(win ? 'Орёл или решка' : 'Не угадал')
     .setDescription(
-      `Выпало: **${result === 'heads' ? '🦅 Орёл' : '🦅 Решка'}**\n` +
-      `Ты выбрал: **${choice === 'heads' ? '🦅 Орёл' : '🦅 Решка'}**`
+      `Выпало: **${result === 'heads' ? 'орёл' : 'решка'}**\n` +
+      `Твой выбор: **${choice === 'heads' ? 'орёл' : 'решка'}**`
     )
     .addFields(
-      { name: '💰 Ставка', value: `**${bet} ⚡HLD**`, inline: true },
-      { name: win ? '🏆 Выигрыш' : '💸 Проигрыш',
-        value: win ? `**+${winAmount} ⚡HLD**` : `**-${Math.abs(winAmount)} ⚡HLD**`,
+      { name: 'Ставка', value: fmtHld(bet), inline: true },
+      { name: win ? 'Выигрыш' : 'Проигрыш',
+        value: win ? fmtHld(winAmount) : `−${fmtHld(Math.abs(winAmount))}`,
         inline: true },
-      { name: '💳 Баланс', value: `**${updatedUser.balance} ⚡HLD**`, inline: true },
+      { name: 'Баланс', value: fmtHld(updatedUser.balance), inline: true },
     )
-    .setFooter({ text: 'Честная игра 50/50. VIP не увеличивает выплату coinflip.' })
+    .setFooter({ text: 'Holidesu · честные 50/50' });
 
   await interaction.editReply({ content: null, embeds: [embed] });
+}
+
+const SUITS = ['♠', '♥', '♦', '♣'];
+const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+
+function bjKey(guildId, userId) {
+  return `bj:${guildId}:${userId}`;
+}
+
+function drawCard() {
+  return {
+    rank: RANKS[Math.floor(Math.random() * RANKS.length)],
+    suit: SUITS[Math.floor(Math.random() * SUITS.length)],
+  };
+}
+
+function handValue(cards) {
+  let total = 0;
+  let aces = 0;
+  for (const c of cards) {
+    if (c.rank === 'A') {
+      aces += 1;
+      total += 11;
+    } else if (['J', 'Q', 'K'].includes(c.rank)) {
+      total += 10;
+    } else {
+      total += Number(c.rank);
+    }
+  }
+  while (total > 21 && aces > 0) {
+    total -= 10;
+    aces -= 1;
+  }
+  return total;
+}
+
+function formatHand(cards, hideSecond = false) {
+  if (hideSecond && cards.length > 1) {
+    return `${cards[0].rank}${cards[0].suit} · ??`;
+  }
+  return cards.map((c) => `${c.rank}${c.suit}`).join(' · ');
+}
+
+function bjButtons() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('bj_hit').setLabel('Ещё').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('bj_stand').setLabel('Хватит').setStyle(ButtonStyle.Secondary),
+  );
+}
+
+function bjEmbed(state, revealDealer) {
+  const p = handValue(state.player);
+  return new EmbedBuilder()
+    .setColor(p > 21 ? COLOR.danger : COLOR.accent)
+    .setTitle('Блэкджек')
+    .addFields(
+      { name: `Ты · ${p}`, value: formatHand(state.player), inline: false },
+      {
+        name: revealDealer ? `Дилер · ${handValue(state.dealer)}` : 'Дилер',
+        value: formatHand(state.dealer, !revealDealer),
+        inline: false,
+      },
+      { name: 'Ставка', value: fmtHld(state.bet), inline: true },
+    )
+    .setFooter({ text: 'Holidesu · 21' });
+}
+
+function settleHeldBlackjack(db, userId, guildId, bet, profit) {
+  if (profit >= 0) addCoins(userId, bet + profit, guildId);
+  const won = profit > 0 ? profit : 0;
+  const lost = profit < 0 ? bet : 0;
+  db.prepare(`
+    INSERT INTO casino_stats (guild_id, user_id, total_bet, total_won, total_lost)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(guild_id, user_id) DO UPDATE SET
+      total_bet = total_bet + excluded.total_bet,
+      total_won = total_won + excluded.total_won,
+      total_lost = total_lost + excluded.total_lost
+  `).run(guildId || '', userId, bet, won, lost);
+  bumpQuest(userId, guildId, 'casino_bets', 1);
+  if (profit > 0) unlockAchievement(userId, guildId, 'casino_win');
+  checkEconomyAchievements(userId, guildId);
+}
+
+async function handleBlackjack(interaction, userId, db, guildId) {
+  const bet = interaction.options.getInteger('bet');
+  const user = db.prepare('SELECT * FROM users WHERE guild_id = ? AND user_id = ?').get(guildId, userId);
+  if (user.balance < bet) {
+    return interaction.reply({
+      content: `❌ Недостаточно ⚡HLD. Баланс: **${user.balance}**.`,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+  if (getEphemeral(bjKey(guildId, userId))) {
+    return interaction.reply({ content: '❌ Сначала закончи текущую раздачу.', flags: MessageFlags.Ephemeral });
+  }
+  if (!removeCoins(userId, bet, guildId)) {
+    return interaction.reply({
+      content: `❌ Недостаточно ⚡HLD. Баланс: **${user.balance}**.`,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  const player = [drawCard(), drawCard()];
+  const dealer = [drawCard(), drawCard()];
+  const state = { bet, player, dealer, guildId, userId };
+
+  if (handValue(player) === 21) {
+    const profit = Math.floor(bet * 1.5);
+    settleHeldBlackjack(db, userId, guildId, bet, profit);
+    const updated = db.prepare('SELECT balance FROM users WHERE guild_id = ? AND user_id = ?').get(guildId, userId);
+    return interaction.reply({
+      embeds: [
+        bjEmbed(state, true)
+          .setTitle('🃏 Блэкджек!')
+          .setDescription(`Натуральный 21. Выигрыш **+${profit} ⚡HLD**\nБаланс: **${updated.balance}**`),
+      ],
+    });
+  }
+
+  setEphemeral(bjKey(guildId, userId), state, 5 * 60 * 1000);
+  await interaction.reply({ embeds: [bjEmbed(state, false)], components: [bjButtons()] });
+}
+
+function dealerPlay(dealer) {
+  while (handValue(dealer) < 17) dealer.push(drawCard());
+  return dealer;
+}
+
+async function finishBlackjack(interaction, state, profit) {
+  const db = getDb();
+  settleHeldBlackjack(db, state.userId, state.guildId, state.bet, profit);
+  deleteEphemeral(bjKey(state.guildId, state.userId));
+  const updated = db.prepare('SELECT balance FROM users WHERE guild_id = ? AND user_id = ?')
+    .get(state.guildId, state.userId);
+  const p = handValue(state.player);
+  const d = handValue(state.dealer);
+  let title = '🤝 Ничья';
+  if (profit > 0) title = '🎉 Победа';
+  else if (profit < 0) title = p > 21 ? '💥 Перебор' : '😔 Дилер сильнее';
+  await interaction.update({
+    embeds: [
+      bjEmbed(state, true)
+        .setTitle(title)
+        .setDescription(`Ты: **${p}** · Дилер: **${d}**\nБаланс: **${updated.balance} ⚡HLD**`),
+    ],
+    components: [],
+  });
+}
+
+export async function handleBlackjackButton(interaction) {
+  if (interaction.customId !== 'bj_hit' && interaction.customId !== 'bj_stand') return false;
+  const state = getEphemeral(bjKey(interaction.guildId, interaction.user.id));
+  if (!state) {
+    await interaction.reply({ content: '❌ Раздача не найдена или истекла.', flags: MessageFlags.Ephemeral });
+    return true;
+  }
+
+  if (interaction.customId === 'bj_hit') {
+    state.player.push(drawCard());
+    const p = handValue(state.player);
+    if (p > 21) {
+      await finishBlackjack(interaction, state, -state.bet);
+      return true;
+    }
+    setEphemeral(bjKey(interaction.guildId, interaction.user.id), state, 5 * 60 * 1000);
+    await interaction.update({ embeds: [bjEmbed(state, false)], components: [bjButtons()] });
+    return true;
+  }
+
+  state.dealer = dealerPlay(state.dealer);
+  const p = handValue(state.player);
+  const d = handValue(state.dealer);
+  let winAmount = 0;
+  if (d > 21 || p > d) winAmount = state.bet;
+  else if (p < d) winAmount = -state.bet;
+  await finishBlackjack(interaction, state, winAmount);
+  return true;
 }
 

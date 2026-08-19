@@ -47,8 +47,11 @@ import {
 import { getDb } from '../database.js';
 import { triggerChannelMention } from '../utils/guildConfig.js';
 
-const ROOM_ACTIONS = 'add_member|invite|toggle_lock|toggle_hide|settings|delete|limit|rename|kick|transfer';
-const PROMPT_ACTIONS = new Set(['add_member', 'invite', 'settings', 'rename', 'limit', 'kick', 'transfer', 'delete']);
+const ROOM_ACTIONS = 'slot_add|slot_remove|add_member|invite|toggle_lock|toggle_hide|settings|delete|limit|rename|kick|transfer|bitrate|toggle_speak';
+const PROMPT_ACTIONS = new Set(['add_member', 'invite', 'settings', 'rename', 'limit', 'kick', 'transfer', 'delete', 'bitrate', 'toggle_speak']);
+
+const PANEL_COLOR = 0xED4245;
+const PANEL_TITLE = 'Управление временной голосовой комнатой';
 
 // ══════════════════════════════════════════════════════════════════
 // 1. ГЛОБАЛЬНОЕ ХРАНИЛИЩЕ СЕССИЙ (КЭШ СООБЩЕНИЙ)
@@ -279,6 +282,94 @@ async function fetchMessageSafe(channel, messageId) {
   }
 }
 
+/**
+ * Публикует или обновляет панель управления в чате голосового канала.
+ *
+ * @param {import('discord.js').Guild} guild
+ * @param {object} room — строка из user_voice_channels
+ * @param {import('discord.js').VoiceChannel} voiceChannel
+ * @param {{ mentionOwner?: boolean }} [options]
+ * @returns {Promise<import('discord.js').Message|null>}
+ */
+export async function publishRoomPanel(guild, room, voiceChannel, { mentionOwner = false } = {}) {
+  if (!guild || !room || !voiceChannel) return null;
+
+  const panel = buildRoomPanel(room, voiceChannel);
+  const voiceChannelId = voiceChannel.id;
+  const existing = findSession(guild.id, voiceChannelId);
+
+  if (existing?.messageId && existing?.channelId && existing.channelId !== voiceChannelId) {
+    try {
+      const oldChannel = guild.channels.cache.get(existing.channelId)
+        || await guild.channels.fetch(existing.channelId).catch(() => null);
+      if (oldChannel?.isTextBased?.()) {
+        const oldMsg = await fetchMessageSafe(oldChannel, existing.messageId);
+        await oldMsg?.delete().catch(() => {});
+      }
+    } catch {
+      // Старую панель не удалось найти — продолжаем
+    }
+  }
+
+  let message = null;
+
+  if (existing?.messageId && existing?.channelId === voiceChannelId) {
+    const existingMsg = await fetchMessageSafe(voiceChannel, existing.messageId);
+    if (existingMsg) {
+      message = await existingMsg.edit(panel).catch(() => null);
+    }
+  }
+
+  if (!message) {
+    const sendOptions = { ...panel };
+    if (mentionOwner && room.owner_id) {
+      sendOptions.content = `<@${room.owner_id}>`;
+    }
+    message = await voiceChannel.send(sendOptions).catch((err) => {
+      console.error(`[ROOM-SETTINGS] Не удалось отправить панель в VC ${voiceChannelId}: ${err.message}`);
+      return null;
+    });
+  }
+
+  if (!message) return null;
+
+  createSession(guild.id, voiceChannelId, {
+    messageId: message.id,
+    channelId: voiceChannelId,
+    ownerId: room.owner_id,
+    roomDbId: room.id,
+  });
+
+  return message;
+}
+
+/**
+ * Удаляет сообщение панели и очищает сессию (если канал ещё существует).
+ *
+ * @param {import('discord.js').Guild} guild
+ * @param {string} voiceChannelId
+ */
+export async function removeRoomPanelMessage(guild, voiceChannelId) {
+  const session = findSession(guild.id, voiceChannelId);
+  if (!session?.messageId || !session?.channelId) {
+    cleanupSession(guild.id, voiceChannelId);
+    return;
+  }
+
+  try {
+    const channel = guild.channels.cache.get(session.channelId)
+      || await guild.channels.fetch(session.channelId).catch(() => null);
+    if (channel?.isTextBased?.()) {
+      const msg = await fetchMessageSafe(channel, session.messageId);
+      await msg?.delete().catch(() => {});
+    }
+  } catch {
+    // Канал или сообщение уже удалены
+  }
+
+  cleanupSession(guild.id, voiceChannelId);
+}
+
 // ══════════════════════════════════════════════════════════════════
 // 4. ПОСТРОЕНИЕ EMBED И КОМПОНЕНТОВ ПАНЕЛИ (IS_COMPONENTS_V2)
 // ══════════════════════════════════════════════════════════════════
@@ -322,119 +413,84 @@ function enrichRoomData(room, voiceChannel) {
     channelName: voiceChannel?.name || 'Комната',
     memberCount: voiceChannel ? voiceChannel.members.filter((m) => !m.user.bot).size : 0,
     userLimit: voiceChannel?.userLimit || 0,
+    bitrate: voiceChannel?.bitrate || 64000,
+    guildId: voiceChannel?.guild?.id || '',
     is_hidden: voiceChannel ? (isChannelHidden(voiceChannel, voiceChannel.guild.id) ? 1 : 0) : 0,
   };
 }
 
-function createMainEmbed(roomData, status = 'Активна', lastAction = null) {
+function buildPanelDescription(guildId, lastAction = null) {
+  const triggerHint = triggerChannelMention(guildId);
+  const lines = [
+    '**Действия в вашей комнате:**',
+    '➕ — добавить 1 слот',
+    '➖ — убрать 1 слот',
+    '🔒 — открыть/закрыть вход для @everyone',
+    '🔊 — запретить/разрешить говорить пользователю',
+    '❌ — выгнать из комнаты',
+    '🎧 — битрейт',
+    '👥 — лимит слотов',
+    '👑 — передать владение',
+    '✏️ — переименовать',
+    '🔓 — доступ конкретному пользователю',
+    '',
+    `*Создание комнат: зайдите в голосовой канал ${triggerHint} — бот создаст личную комнату и перенесёт вас.*`,
+  ];
+  if (lastAction) lines.push('', lastAction);
+  return lines.join('\n');
+}
+
+function createMainEmbed(roomData, status = 'Активна', lastAction = null, guildId = '') {
   try {
     if (!roomData || typeof roomData !== 'object') {
       throw new Error('roomData is null or not an object');
     }
 
-    const statusColor = status === 'Ошибка' ? 0xED4245 : status === 'В обработке' ? 0xFEE75C : 0x57F287;
-    const channelName = roomData.channelName || 'Комната';
-    const currentMembers = typeof roomData.memberCount === 'number' ? roomData.memberCount : 0;
-    const limit = roomData.userLimit > 0 ? String(roomData.userLimit) : '∞';
-    const access = roomData.is_locked ? 'закрыта' : 'открыта';
-    const visibility = roomData.is_hidden ? 'скрыта' : 'видна';
+    const statusColor = status === 'Ошибка' ? 0xED4245 : status === 'В обработке' ? 0xFEE75C : PANEL_COLOR;
+    const resolvedGuildId = guildId || roomData.guildId || '';
 
     const embed = new EmbedBuilder()
-      .setTitle(`#${channelName}`)
-      .setDescription(
-        `\`${access}\`  ·  \`${visibility}\`  ·  \`${currentMembers}/${limit}\`` +
-        (lastAction ? `\n${lastAction}` : '')
-      )
-      .setColor(statusColor)
-      .addFields(
-        { name: 'Владелец', value: roomData.owner_id ? `<@${roomData.owner_id}>` : '—', inline: true },
-        { name: 'Доступ', value: roomData.is_locked ? '🔒 только свои' : '🌐 все', inline: true },
-        { name: 'Канал', value: roomData.voice_channel_id ? `<#${roomData.voice_channel_id}>` : '—', inline: true },
-      )
-      .setFooter({ text: '🔒 👁 👥 ✏ ➕   ·   👢 👑 ⚙ 🗑' });
+      .setTitle(PANEL_TITLE)
+      .setDescription(buildPanelDescription(resolvedGuildId, lastAction))
+      .setColor(statusColor);
 
     return embed;
   } catch (error) {
     console.error(`[ROOM-SETTINGS] Ошибка создания Embed: ${error.message}`);
     return new EmbedBuilder()
-      .setTitle('Ошибка панели')
+      .setTitle(PANEL_TITLE)
       .setDescription('Запустите `/room-settings` заново.')
       .setColor(0xED4245);
   }
 }
 
-function roomBtn(action, vcId, dbId, { emoji, label, style, disabled }) {
+function roomBtn(action, vcId, dbId, { emoji, style, disabled }) {
   return new ButtonBuilder()
     .setCustomId(`room_action_${action}_${vcId}_${dbId}`)
     .setEmoji(emoji)
-    .setLabel(label)
     .setStyle(style)
     .setDisabled(disabled);
 }
 
-function createActionRows(roomData, { isLocked = false, isHidden = false, isProcessing = false } = {}) {
+function createActionRows(roomData, { isProcessing = false } = {}) {
   const vcId = roomData?.voice_channel_id || 'unknown';
   const dbId = roomData?.id || '0';
   const off = isProcessing;
 
   const row1 = new ActionRowBuilder().addComponents(
-    roomBtn('toggle_lock', vcId, dbId, {
-      emoji: isLocked ? '🔓' : '🔒',
-      label: isLocked ? 'Открыть' : 'Закрыть',
-      style: isLocked ? ButtonStyle.Success : ButtonStyle.Secondary,
-      disabled: off,
-    }),
-    roomBtn('toggle_hide', vcId, dbId, {
-      emoji: isHidden ? '👁' : '🙈',
-      label: isHidden ? 'Показать' : 'Скрыть',
-      style: ButtonStyle.Secondary,
-      disabled: off,
-    }),
-    roomBtn('limit', vcId, dbId, {
-      emoji: '👥',
-      label: 'Лимит',
-      style: ButtonStyle.Secondary,
-      disabled: off,
-    }),
-    roomBtn('rename', vcId, dbId, {
-      emoji: '✏',
-      label: 'Имя',
-      style: ButtonStyle.Secondary,
-      disabled: off,
-    }),
-    roomBtn('invite', vcId, dbId, {
-      emoji: '➕',
-      label: 'Вход',
-      style: ButtonStyle.Primary,
-      disabled: off,
-    }),
+    roomBtn('slot_add', vcId, dbId, { emoji: '➕', style: ButtonStyle.Secondary, disabled: off }),
+    roomBtn('slot_remove', vcId, dbId, { emoji: '➖', style: ButtonStyle.Secondary, disabled: off }),
+    roomBtn('toggle_lock', vcId, dbId, { emoji: '🔒', style: ButtonStyle.Secondary, disabled: off }),
+    roomBtn('rename', vcId, dbId, { emoji: '✏️', style: ButtonStyle.Secondary, disabled: off }),
+    roomBtn('limit', vcId, dbId, { emoji: '👥', style: ButtonStyle.Secondary, disabled: off }),
   );
 
   const row2 = new ActionRowBuilder().addComponents(
-    roomBtn('kick', vcId, dbId, {
-      emoji: '👢',
-      label: 'Кик',
-      style: ButtonStyle.Secondary,
-      disabled: off,
-    }),
-    roomBtn('transfer', vcId, dbId, {
-      emoji: '👑',
-      label: 'Владелец',
-      style: ButtonStyle.Secondary,
-      disabled: off,
-    }),
-    roomBtn('settings', vcId, dbId, {
-      emoji: '⚙',
-      label: 'Права',
-      style: ButtonStyle.Secondary,
-      disabled: off,
-    }),
-    roomBtn('delete', vcId, dbId, {
-      emoji: '🗑',
-      label: 'Удалить',
-      style: ButtonStyle.Danger,
-      disabled: off,
-    }),
+    roomBtn('bitrate', vcId, dbId, { emoji: '🎧', style: ButtonStyle.Secondary, disabled: off }),
+    roomBtn('kick', vcId, dbId, { emoji: '❌', style: ButtonStyle.Secondary, disabled: off }),
+    roomBtn('toggle_speak', vcId, dbId, { emoji: '🔊', style: ButtonStyle.Secondary, disabled: off }),
+    roomBtn('invite', vcId, dbId, { emoji: '🔓', style: ButtonStyle.Secondary, disabled: off }),
+    roomBtn('transfer', vcId, dbId, { emoji: '👑', style: ButtonStyle.Secondary, disabled: off }),
   );
 
   return [row1, row2];
@@ -443,20 +499,17 @@ function createActionRows(roomData, { isLocked = false, isHidden = false, isProc
 export function buildRoomPanel(room, voiceChannel, { lastAction = null, status = 'Активна' } = {}) {
   const roomData = enrichRoomData(room, voiceChannel);
   return {
-    embeds: [createMainEmbed(roomData, status, lastAction)],
-    components: createActionRows(roomData, {
-      isLocked: !!roomData.is_locked,
-      isHidden: !!roomData.is_hidden,
-      isProcessing: false,
-    }),
+    embeds: [createMainEmbed(roomData, status, lastAction, voiceChannel?.guild?.id)],
+    components: createActionRows(roomData, { isProcessing: false }),
   };
 }
 
 async function showUserPicker(interaction, kind, room) {
   const labels = {
-    invite: 'Кого пустить в комнату?',
+    invite: 'Кому выдать доступ в комнату?',
     kick: 'Кого выгнать из комнаты?',
     transfer: 'Кому передать комнату?',
+    speak: 'Кому запретить или разрешить говорить?',
   };
   const row = new ActionRowBuilder().addComponents(
     new UserSelectMenuBuilder()
@@ -597,11 +650,9 @@ export async function handleRoomSettingsButtons(interaction) {
                 roomData,
                 'Ошибка',
                 `❌ Ошибка: ${error.message.slice(0, 100)}`,
+                guild.id,
               );
-              const components = createActionRows(
-                roomData,
-                { isLocked: !!room.is_locked, isHidden: !!roomData.is_hidden, isProcessing: false },
-              );
+              const components = createActionRows(roomData, { isProcessing: false });
               await msg.edit({ embeds: [embed], components }).catch(() => {});
             }
           }
@@ -692,8 +743,7 @@ async function processButtonAction(interaction, actionType, voiceChannelId, room
         const botMessages = messages.filter(m =>
           m.author.id === interaction.client.user.id &&
           m.embeds.length > 0 &&
-          (m.embeds[0].title?.startsWith('#') ||
-            m.embeds[0].footer?.text?.includes('🔒 👁')),
+          m.embeds[0].title === PANEL_TITLE,
         );
         if (botMessages.size > 0) {
           targetMessage = botMessages.first();
@@ -717,7 +767,7 @@ async function processButtonAction(interaction, actionType, voiceChannelId, room
   if (!targetMessage || !targetChannel) {
     cleanupSession(guild.id, voiceChannelId);
     return interaction.reply({
-      content: '❌ **Панель управления устарела.** Сообщение с панелью не найдено. Запустите `/room-settings` заново.',
+      content: '❌ **Панель управления устарела.** Откройте чат своего голосового канала или вызовите `/room-settings`, чтобы опубликовать её снова.',
       flags: MessageFlags.Ephemeral,
     });
   }
@@ -799,13 +849,9 @@ async function processButtonAction(interaction, actionType, voiceChannelId, room
   // Формируем roomData для createMainEmbed и createActionRows
   const roomData = enrichRoomData(updatedRoom || room, currentVoiceChannel);
 
-  const newEmbed = createMainEmbed(roomData, embedStatus, lastActionText);
+  const newEmbed = createMainEmbed(roomData, embedStatus, lastActionText, guild.id);
 
-  const newComponents = createActionRows(roomData, {
-    isLocked: !!roomData.is_locked,
-    isHidden: !!roomData.is_hidden,
-    isProcessing: false,
-  });
+  const newComponents = createActionRows(roomData, { isProcessing: false });
 
   // ─── Шаг 8: Редактирование сообщения с обработкой ошибок ───
   try {
@@ -896,6 +942,28 @@ async function processButtonAction(interaction, actionType, voiceChannelId, room
  */
 async function executeRoomAction(interaction, actionType, room, voiceChannel, guild, db) {
   switch (actionType) {
+    case 'slot_add': {
+      const members = voiceChannel.members.filter((m) => !m.user.bot).size;
+      const base = voiceChannel.userLimit || members || 1;
+      const newLimit = Math.min(99, base + 1);
+      await voiceChannel.setUserLimit(newLimit);
+      return {
+        actionText: `Лимит слотов: **${newLimit}** (+1).`,
+        followUpText: null,
+      };
+    }
+
+    case 'slot_remove': {
+      const members = voiceChannel.members.filter((m) => !m.user.bot).size;
+      const base = voiceChannel.userLimit || members || 1;
+      const newLimit = Math.max(0, base - 1);
+      await voiceChannel.setUserLimit(newLimit);
+      return {
+        actionText: newLimit === 0 ? 'Лимит слотов снят (−1).' : `Лимит слотов: **${newLimit}** (−1).`,
+        followUpText: null,
+      };
+    }
+
     // ─── Toggle Lock: Закрыть/Открыть доступ ───────────────────
     case 'toggle_lock': {
       if (room.is_locked) {
@@ -962,6 +1030,11 @@ async function executeRoomAction(interaction, actionType, room, voiceChannel, gu
       return { actionText: null, followUpText: null };
     }
 
+    case 'toggle_speak': {
+      await showUserPicker(interaction, 'speak', room);
+      return { actionText: null, followUpText: null };
+    }
+
     case 'transfer': {
       await showUserPicker(interaction, 'transfer', room);
       return { actionText: null, followUpText: null };
@@ -985,11 +1058,26 @@ async function executeRoomAction(interaction, actionType, room, voiceChannel, gu
       await interaction.showModal(
         showTextModal(
           `room_limit_modal_${room.voice_channel_id}_${room.id}`,
-          'Лимит участников',
+          'Лимит слотов',
           'room_new_limit',
           'Число 0–99 (0 = без лимита)',
           '0',
           String(voiceChannel.userLimit || 0),
+        ),
+      );
+      return { actionText: null, followUpText: null };
+    }
+
+    case 'bitrate': {
+      const maxKbps = Math.floor(guild.maximumBitrate / 1000);
+      await interaction.showModal(
+        showTextModal(
+          `room_bitrate_modal_${room.voice_channel_id}_${room.id}`,
+          'Битрейт',
+          'room_new_bitrate',
+          `кбит/с (8–${maxKbps})`,
+          String(Math.round((voiceChannel.bitrate || 64000) / 1000)),
+          String(Math.round((voiceChannel.bitrate || 64000) / 1000)),
         ),
       );
       return { actionText: null, followUpText: null };
@@ -1096,7 +1184,7 @@ async function handleDeleteConfirm(interaction, confirmed) {
 }
 
 export async function handleRoomUserSelect(interaction) {
-  const parsed = interaction.customId.match(/^room_user_(invite|kick|transfer)_(\d+)_(\d+)$/);
+  const parsed = interaction.customId.match(/^room_user_(invite|kick|transfer|speak)_(\d+)_(\d+)$/);
   if (!parsed) return false;
 
   const kind = parsed[1];
@@ -1187,6 +1275,35 @@ export async function handleRoomUserSelect(interaction) {
     return true;
   }
 
+  if (kind === 'speak') {
+    if (targetId === room.owner_id) {
+      await interaction.reply({ content: 'Нельзя ограничить владельца.', flags: MessageFlags.Ephemeral });
+      return true;
+    }
+    const overwrite = voiceChannel.permissionOverwrites.cache.get(targetId);
+    const speakDenied = overwrite?.deny?.has(PermissionFlagsBits.Speak);
+    if (speakDenied) {
+      await voiceChannel.permissionOverwrites.edit(targetId, { Speak: null });
+      if (targetMember.voice?.channelId === voiceChannel.id && targetMember.voice.serverMute) {
+        await targetMember.voice.setMute(false).catch(() => {});
+      }
+      await interaction.update({
+        content: `${targetMember} снова **может говорить** в комнате.`,
+        components: [],
+      });
+    } else {
+      await voiceChannel.permissionOverwrites.edit(targetId, { Speak: false });
+      if (targetMember.voice?.channelId === voiceChannel.id) {
+        await targetMember.voice.setMute(true).catch(() => {});
+      }
+      await interaction.update({
+        content: `${targetMember} **не может говорить** в комнате.`,
+        components: [],
+      });
+    }
+    return true;
+  }
+
   return true;
 }
 
@@ -1254,7 +1371,55 @@ export async function handleRoomLimitModal(interaction) {
   }
   await voiceChannel.setUserLimit(limit);
   await interaction.reply({
-    content: limit === 0 ? 'Лимит снят.' : `Лимит: **${limit}** участников.`,
+    content: limit === 0 ? 'Лимит слотов снят.' : `Лимит слотов: **${limit}**.`,
+    flags: MessageFlags.Ephemeral,
+  });
+  return true;
+}
+
+export async function handleRoomBitrateModal(interaction) {
+  const parsed = interaction.customId.match(/^room_bitrate_modal_(\d+)_(\d+)$/);
+  if (!parsed) return false;
+  const voiceChannelId = parsed[1];
+  const roomDbId = parseInt(parsed[2], 10);
+  const raw = interaction.fields.getTextInputValue('room_new_bitrate').trim();
+  const kbps = parseInt(raw, 10);
+  const maxKbps = Math.floor(interaction.guild.maximumBitrate / 1000);
+
+  if (Number.isNaN(kbps) || kbps < 8 || kbps > maxKbps) {
+    await interaction.reply({
+      content: `Укажи число от **8** до **${maxKbps}** кбит/с.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return true;
+  }
+
+  const db = getDb();
+  const room = db.prepare('SELECT * FROM user_voice_channels WHERE id = ?').get(roomDbId);
+  if (!room) {
+    await interaction.reply({ content: 'Комната не найдена.', flags: MessageFlags.Ephemeral });
+    return true;
+  }
+  if (!(await assertRoomOwner(interaction, room))) return true;
+
+  const voiceChannel = await fetchVoiceChannelSafe(interaction.guild, voiceChannelId);
+  if (!voiceChannel) {
+    await interaction.reply({ content: 'Канал не найден.', flags: MessageFlags.Ephemeral });
+    return true;
+  }
+
+  try {
+    await voiceChannel.setBitrate(kbps * 1000);
+  } catch (err) {
+    await interaction.reply({
+      content: `Не удалось изменить битрейт: \`${err.message}\``,
+      flags: MessageFlags.Ephemeral,
+    });
+    return true;
+  }
+
+  await interaction.reply({
+    content: `Битрейт установлен: **${kbps}** кбит/с.`,
     flags: MessageFlags.Ephemeral,
   });
   return true;
@@ -1472,11 +1637,9 @@ export async function handleRoomSettingsModal(interaction) {
               roomData,
               'Активна',
               `Права <@${targetMember.id}>: **${permAction === 'allow' ? 'разрешены' : permAction === 'deny' ? 'запрещены' : 'сброшены'}**`,
+              guild.id,
             );
-            const components = createActionRows(
-              roomData,
-              { isLocked: !!updatedRoom.is_locked, isHidden: !!roomData.is_hidden, isProcessing: false },
-            );
+            const components = createActionRows(roomData, { isProcessing: false });
             await msg.edit({ embeds: [embed], components }).catch(() => {});
           }
         }
@@ -1501,7 +1664,7 @@ export async function handleRoomSettingsModal(interaction) {
 export default {
   data: new SlashCommandBuilder()
     .setName('room-settings')
-    .setDescription('🎙 Открыть панель управления вашей приватной голосовой комнатой')
+    .setDescription('Панель своей приватной голосовой комнаты')
     .setDMPermission(false),
 
   async execute(interaction) {
@@ -1537,24 +1700,18 @@ export default {
       });
     }
 
-    // ─── Формируем roomData для функций построения UI ─────────
-    // createMainEmbed ожидает: channelName, memberCount, owner_id, is_locked, voice_channel_id
-    const panel = buildRoomPanel(room, voiceChannel);
+    const sentMessage = await publishRoomPanel(guild, room, voiceChannel);
+
+    if (!sentMessage) {
+      return interaction.reply({
+        content: '❌ **Не удалось отправить панель** в чат голосового канала. Проверьте права бота: **Отправка сообщений**, **Встраивать ссылки**.',
+        flags: MessageFlags.Ephemeral,
+      });
+    }
 
     await interaction.reply({
-      ...panel,
+      content: `✅ **Панель управления** опубликована в чате ${voiceChannel}. Откройте голосовой канал и управляйте комнатой там.`,
       flags: MessageFlags.Ephemeral,
-    });
-
-    // ─── Получаем ID отправленного сообщения ─────────────────
-    const sentMessage = await interaction.fetchReply();
-
-    // ─── Сохраняем сессию ────────────────────────────────────
-    createSession(guild.id, room.voice_channel_id, {
-      messageId: sentMessage.id,
-      channelId: interaction.channel.id,
-      ownerId: user.id,
-      roomDbId: room.id,
     });
 
     console.log(

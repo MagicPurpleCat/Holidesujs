@@ -1,5 +1,6 @@
 import { Events } from 'discord.js';
 import { ensureUser, addCoins, addXp, getDb } from '../database.js';
+import { bumpQuest, checkEconomyAchievements, getFarmMultiplier } from '../modules/progress.js';
 import { getGuildConfig, getTriggerChannelId, initGuildConfig, suggestScaleOptimizations, clearGuildConfigCache } from '../utils/guildConfig.js';
 import { logInfo, logErr } from '../utils/botLog.js';
 import { checkLevelMilestones } from '../commands/rank.js';
@@ -90,8 +91,10 @@ export function registerGuildEvents(client, shardId) {
           last_message_at = datetime('now')
       `).run(message.author.id);
 
-      db.prepare('UPDATE users SET total_messages = total_messages + 1 WHERE guild_id = ? AND user_id = ?')
+      db.prepare('UPDATE users SET total_messages = total_messages + 1, season_messages = COALESCE(season_messages, 0) + 1 WHERE guild_id = ? AND user_id = ?')
         .run(message.guild.id, message.author.id);
+      bumpQuest(message.author.id, message.guild.id, 'messages', 1);
+      checkEconomyAchievements(message.author.id, message.guild.id);
 
       if (features.activityRoles) {
         const member = message.guild.members.cache.get(message.author.id);
@@ -152,8 +155,24 @@ export function registerGuildEvents(client, shardId) {
       }
       const guildFarmers = voiceFarming.get(guildId);
 
-      if (newState.channelId === getTriggerChannelId(newState.guild.id) && !oldState?.channelId) {
-        await createVoiceRoom(newState.member, newState.channel).catch((e) => logErr(shardId, 'JTC', e.message));
+      const triggerChannelId = getTriggerChannelId(newState.guild.id);
+      const enteredTrigger = triggerChannelId
+        && newState.channelId
+        && String(newState.channelId) === String(triggerChannelId)
+        && String(oldState?.channelId ?? '') !== String(newState.channelId);
+
+      if (enteredTrigger) {
+        const member = newState.member
+          ?? await newState.guild.members.fetch(newState.id).catch(() => null);
+        const triggerChannel = newState.channel
+          ?? await newState.guild.channels.fetch(newState.channelId).catch(() => null);
+
+        if (member && triggerChannel) {
+          logInfo(shardId, 'JTC', `Триггер ${triggerChannelId}: ${member.user.tag} — создание комнаты`);
+          await createVoiceRoom(member, triggerChannel).catch((e) => logErr(shardId, 'JTC', e.message));
+        } else {
+          logErr(shardId, 'JTC', `Триггер ${triggerChannelId}: не удалось получить member/channel`);
+        }
         return;
       }
 
@@ -523,13 +542,13 @@ export function startVoiceFarmLoop() {
             }
 
             const user = db.prepare('SELECT last_voice_reset_time FROM users WHERE guild_id = ? AND user_id = ?').get(guildId, userId);
-            let effectiveRate = FARM_RATE;
+            let effectiveRate = Math.max(1, Math.round(FARM_RATE * getFarmMultiplier(member)));
 
             if (user?.last_voice_reset_time) {
               const lastReset = new Date(user.last_voice_reset_time + 'Z').getTime();
               const minutesSinceReset = (Date.now() - lastReset) / 60_000;
               if (minutesSinceReset > ANTI_AFK_FULL_RATE_MINUTES) {
-                effectiveRate = Math.max(1, Math.floor(FARM_RATE * ANTI_AFK_REDUCED_MULTIPLIER));
+                effectiveRate = Math.max(1, Math.floor(effectiveRate * ANTI_AFK_REDUCED_MULTIPLIER));
               }
             }
 
@@ -539,8 +558,10 @@ export function startVoiceFarmLoop() {
 
             addCoins(userId, effectiveRate, guildId);
             const xpResult = addXp(userId, effectiveRate, guildId);
-            db.prepare("UPDATE users SET last_voice_farm = datetime('now'), total_voice_minutes = total_voice_minutes + 1 WHERE guild_id = ? AND user_id = ?").run(guildId, userId);
+            db.prepare("UPDATE users SET last_voice_farm = datetime('now'), total_voice_minutes = total_voice_minutes + 1, season_voice = COALESCE(season_voice, 0) + 1 WHERE guild_id = ? AND user_id = ?").run(guildId, userId);
             db.prepare('INSERT INTO voice_farm_log (user_id, channel_id, earned) VALUES (?, ?, ?)').run(userId, session.channelId, effectiveRate);
+            bumpQuest(userId, guildId, 'voice_minutes', 1);
+            checkEconomyAchievements(userId, guildId);
 
             if (xpResult) {
               await checkLevelMilestones(

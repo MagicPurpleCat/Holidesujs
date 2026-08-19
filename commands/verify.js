@@ -18,7 +18,7 @@ import { buildVerificationEmbed } from '../modules/verification.js';
 export default {
   data: new SlashCommandBuilder()
     .setName('verify')
-    .setDescription('🔐 Система верификации')
+    .setDescription('Верификация: панель и проверка статуса')
     .addSubcommand((sub) =>
       sub
         .setName('setup')

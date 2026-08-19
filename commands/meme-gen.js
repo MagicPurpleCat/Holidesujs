@@ -1,6 +1,7 @@
 // === МОДУЛЬ: MEME-GEN (Генератор мемов/фраз — локальный AI) ===
 import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
 import { getDb, ensureUser } from '../database.js';
+import { COLOR } from '../utils/ui.js';
 
 // Шаблоны мемов с плейсхолдерами {user}, {server}
 const memeTemplates = [
@@ -21,7 +22,7 @@ const memeTemplates = [
 export default {
   data: new SlashCommandBuilder()
     .setName('meme-gen')
-    .setDescription('🎭 Сгенерировать случайный мем или фразу')
+    .setDescription('Случайная фраза или мем про сервер')
     .addStringOption((opt) =>
       opt.setName('тип')
         .setDescription('Тип мема')
@@ -72,10 +73,10 @@ export default {
       };
 
       const embed = new EmbedBuilder()
-        .setColor(0xff4500)
-        .setTitle(`${meme.emoji} Генератор мемов • ${typeNames[type] || 'Случайный'}`)
-        .setDescription(text)
-        .setFooter({ text: `${interaction.guild.name} • /meme-gen` })
+        .setColor(COLOR.accent)
+        .setTitle(typeNames[type] || 'Случайный')
+        .setDescription(`${meme.emoji}  ${text}`)
+        .setFooter({ text: `${interaction.guild.name} · meme-gen` });
 
       await interaction.reply({ embeds: [embed] });
     } catch (error) {

@@ -13,6 +13,9 @@ const DEFAULT_FEATURES = Object.freeze({
   welcomeNPC: true,
   clans: true,
   reputation: true,
+  dailyQuests: true,
+  tickets: true,
+  giveaways: true,
 });
 
 const DEFAULT_LEVEL_ROLES = {};
@@ -104,13 +107,16 @@ export function commandFeatureKey(commandName) {
   if (critical.has(commandName)) return null;
 
   const map = {
-    economy: ['баланс', 'shop', 'топ', 'rank', 'casino', 'role', 'pay'],
+    economy: ['баланс', 'shop', 'топ', 'rank', 'casino', 'role', 'pay', 'work', 'cosmetics', 'косметика'],
     leveling: ['profile', 'rank'],
     moderation: ['mod', 'history'],
-    marriages: ['marry', 'divorce'],
+    marriages: ['marry', 'divorce', 'семья'],
     clans: ['clan'],
     reputation: ['реп', 'rep'],
     voiceFarming: ['room-settings'],
+    dailyQuests: ['квесты', 'сезон'],
+    tickets: ['ticket'],
+    giveaways: ['giveaway'],
   };
 
   for (const [feature, names] of Object.entries(map)) {
@@ -149,14 +155,16 @@ export function getGuildConfig(guildId) {
     prefix: row?.prefix || legacy?.prefix || '/',
     ownerId: row?.owner_id || FALLBACK_OWNER_ID,
     adminRoles: Array.isArray(adminRoles) ? adminRoles : [],
-    triggerChannelId: channels.trigger || FALLBACK_TRIGGER_CHANNEL_ID,
-    voiceCategoryId: channels.voice_category || FALLBACK_VOICE_CATEGORY_ID,
+    triggerChannelId: (channels.trigger || '').trim() || (FALLBACK_TRIGGER_CHANNEL_ID || '').trim(),
+    voiceCategoryId: (channels.voice_category || '').trim() || (FALLBACK_VOICE_CATEGORY_ID || '').trim(),
     voicePanelChannelId: channels.voice_panel || '',
     welcomeChannelId: channels.welcome || channels.cmd || '',
     cmdChannelId: channels.cmd || '',
     mainChannelId: channels.cmd || '',
     logChannelId: channels.log || legacy?.logChannelId || '',
     modChannelId: channels.mod || '',
+    ticketCategoryId: channels.ticket_category || '',
+    seasonRoleId: channels.season_role || '',
     verifiedRoleId: channels.verified_role || FALLBACK_VERIFIED_ROLE_ID,
     extraVerifyRoles: extraFromChannels?.length
       ? extraFromChannels

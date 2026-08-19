@@ -19,6 +19,7 @@ import {
 import { getDb, getUser, ensureUser } from '../database.js';
 import { generateProfileImage } from '../modules/canvas-profile-minimal.js';
 import { overallScore } from './top.js';
+import { listAchievements, ACHIEVEMENTS, COSMETICS, getMemberClanRow } from '../modules/progress.js';
 
 // ============================================================================
 // EMBED-ФОЛБЕК, если модуль canvas недоступен.
@@ -53,6 +54,12 @@ function buildProfileEmbed(data) {
 
   if (data.marriageWith && data.marriageWith !== 'Отсутствует') {
     embed.addFields({ name: '❤️ Брак', value: data.marriageWith, inline: false });
+  }
+  if (data.achievements) {
+    embed.addFields({ name: '🏅 Достижения', value: data.achievements, inline: false });
+  }
+  if (data.clanTag) {
+    embed.addFields({ name: '👥 Клан', value: data.clanTag, inline: true });
   }
   if (data.about) {
     embed.addFields({ name: '📝 О себе', value: data.about.slice(0, 200), inline: false });
@@ -113,6 +120,16 @@ function collectProfileData(target, member, db, guildId) {
     if (pos !== -1) rank = pos + 1;
   } catch (_) {}
 
+  const clan = getMemberClanRow(target.id, guildId);
+  const clanTag = clan?.show_tag ? `[${clan.tag}] ${clan.name}` : null;
+  const unlocked = listAchievements(target.id, guildId);
+  const badges = unlocked
+    .map((a) => ACHIEVEMENTS[a.key]?.name || a.key)
+    .filter(Boolean);
+  const achievementText = unlocked.length
+    ? unlocked.map((a) => `${ACHIEVEMENTS[a.key]?.emoji || '🏅'} ${ACHIEVEMENTS[a.key]?.name || a.key}`).join('\n')
+    : null;
+
   return {
     avatarUrl: target.displayAvatarURL({ size: 512, extension: 'png' }),
     username: nickname,
@@ -135,6 +152,12 @@ function collectProfileData(target, member, db, guildId) {
         })
       : null,
     about: user.personal_note || null,
+    clanTag,
+    achievements: achievementText,
+    badges,
+    frameColor: COSMETICS[user.equipped_frame]?.color || null,
+    bgFrom: COSMETICS[user.equipped_background]?.from || null,
+    bgTo: COSMETICS[user.equipped_background]?.to || null,
   };
 }
 
@@ -145,7 +168,7 @@ function collectProfileData(target, member, db, guildId) {
 export default {
   data: new SlashCommandBuilder()
     .setName('profile')
-    .setDescription('👤 Показать профиль пользователя с изображением')
+    .setDescription('Карточка профиля с рамкой, кланом и достижениями')
     .addUserOption((opt) =>
       opt
         .setName('user')

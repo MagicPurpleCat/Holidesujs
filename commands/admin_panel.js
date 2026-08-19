@@ -1543,8 +1543,8 @@ export async function handleModerationModal(interaction) {
 
 const adminPanelCommand = {
   data: new SlashCommandBuilder()
-.setName('панель')
-    .setDescription('🛠 Открыть панель управления ботом'),
+    .setName('панель')
+    .setDescription('Админ-центр: экономика, права, модерация'),
 
   async execute(interaction) {
     const userLevel = getUserLevel(interaction.user.id, interaction.guild);

@@ -26,6 +26,7 @@ import {
   handleRoomUserSelect,
   handleRoomRenameModal,
   handleRoomLimitModal,
+  handleRoomBitrateModal,
 } from '../commands/room-settings.js';
 import { handleSetupInteraction } from '../commands/setup.js';
 import { handleRoleCreateModal } from '../commands/role.js';
@@ -44,6 +45,9 @@ import {
 import { handleVerificationButton, handleVerificationModal } from '../modules/verification.js';
 import { handleMarryButton } from '../modules/relationships.js';
 import { handleClanWarButton } from '../commands/clan.js';
+import { handleBlackjackButton } from '../commands/casino.js';
+import { handleTicketButton, handleTicketClose } from '../commands/ticket.js';
+import { handleGiveawayButton } from '../commands/giveaway.js';
 import { handleWelcomeReadyButton, handleWelcomeRoleModal } from '../modules/welcomeNPC.js';
 import { handleVoicePanelButtons } from '../modules/voicePanel.js';
 
@@ -94,6 +98,38 @@ export function createInteractionHandler(shardId, client) {
         if (customId.startsWith('clan_war_')) {
           const handled = await handleClanWarButton(interaction).catch((e) => {
             logErr(shardId, 'CLAN_WAR', e.message);
+            return false;
+          });
+          if (handled) return;
+        }
+
+        if (customId === 'bj_hit' || customId === 'bj_stand') {
+          const handled = await handleBlackjackButton(interaction).catch((e) => {
+            logErr(shardId, 'BJ', e.message);
+            return false;
+          });
+          if (handled) return;
+        }
+
+        if (customId === 'ticket_create') {
+          const handled = await handleTicketButton(interaction).catch((e) => {
+            logErr(shardId, 'TICKET', e.message);
+            return false;
+          });
+          if (handled) return;
+        }
+
+        if (customId === 'ticket_close') {
+          const handled = await handleTicketClose(interaction).catch((e) => {
+            logErr(shardId, 'TICKET', e.message);
+            return false;
+          });
+          if (handled) return;
+        }
+
+        if (customId.startsWith('giveaway_join:')) {
+          const handled = await handleGiveawayButton(interaction).catch((e) => {
+            logErr(shardId, 'GIVEAWAY', e.message);
             return false;
           });
           if (handled) return;
@@ -269,6 +305,7 @@ export function createInteractionHandler(shardId, client) {
         if (customId.startsWith('room_settings_modal_')) { await handleRoomSettingsModal(interaction).catch(() => {}); return; }
         if (customId.startsWith('room_rename_modal_')) { await handleRoomRenameModal(interaction).catch(() => {}); return; }
         if (customId.startsWith('room_limit_modal_')) { await handleRoomLimitModal(interaction).catch(() => {}); return; }
+        if (customId.startsWith('room_bitrate_modal_')) { await handleRoomBitrateModal(interaction).catch(() => {}); return; }
 
         return;
       }

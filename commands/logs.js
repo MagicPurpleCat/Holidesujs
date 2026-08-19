@@ -49,7 +49,7 @@ function canManage(interaction) {
 export default {
   data: new SlashCommandBuilder()
     .setName('логи')
-    .setDescription('📜 Настройка логирования сервера и ролей-фильтров')
+    .setDescription('Каналы и уровень логов сервера')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false)
     .addSubcommand((sub) =>

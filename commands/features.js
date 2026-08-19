@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, EmbedBuilder, MessageFlags, PermissionFlagsBits } from 'discord.js';
 import { DEFAULT_FEATURES, getGuildConfig, setGuildFeature } from '../utils/guildConfig.js';
 import { getUserLevel } from '../utils/permissions.js';
+import { COLOR, replyFail } from '../utils/ui.js';
 
 const FEATURE_CHOICES = Object.keys(DEFAULT_FEATURES).map((key) => ({ name: key, value: key }));
 
@@ -15,19 +16,19 @@ function featuresEmbed(guildId) {
   const features = getGuildConfig(guildId).features || {};
   const lines = Object.keys(DEFAULT_FEATURES).map((key) => {
     const on = features[key] !== false;
-    return `${on ? '✅' : '❌'} **${key}**`;
+    return `${on ? '●' : '○'}  **${key}**`;
   });
   return new EmbedBuilder()
-    .setColor(0x5865f2)
-    .setTitle('🎛 Фичи сервера')
+    .setColor(COLOR.accent)
+    .setTitle('Модули сервера')
     .setDescription(lines.join('\n'))
-    .setFooter({ text: 'Меняй через /фичи set' });
+    .setFooter({ text: 'Holidesu · /фичи set' });
 }
 
 export default {
   data: new SlashCommandBuilder()
     .setName('фичи')
-    .setDescription('🎛 Включить или выключить модули бота на этом сервере')
+    .setDescription('Включить или выключить модули бота')
     .addSubcommand((sub) =>
       sub.setName('list').setDescription('Показать состояние фич')
     )
@@ -49,10 +50,7 @@ export default {
 
   async execute(interaction) {
     if (!canManageFeatures(interaction)) {
-      return interaction.reply({
-        content: '❌ Нужны права администратора или уровень Admin.',
-        flags: MessageFlags.Ephemeral,
-      });
+      return replyFail(interaction, 'Нужны права администратора.');
     }
 
     const sub = interaction.options.getSubcommand();
@@ -67,15 +65,16 @@ export default {
     const enabled = interaction.options.getBoolean('включено');
     const ok = setGuildFeature(interaction.guildId, feature, enabled);
     if (!ok) {
-      return interaction.reply({
-        content: '❌ Неизвестная фича.',
-        flags: MessageFlags.Ephemeral,
-      });
+      return replyFail(interaction, 'Неизвестная фича.');
     }
 
     await interaction.reply({
-      content: `${enabled ? '✅' : '❌'} Фича **${feature}** ${enabled ? 'включена' : 'выключена'}.`,
-      embeds: [featuresEmbed(interaction.guildId)],
+      content: null,
+      embeds: [
+        featuresEmbed(interaction.guildId).setTitle(
+          enabled ? `Включено · ${feature}` : `Выключено · ${feature}`,
+        ),
+      ],
       flags: MessageFlags.Ephemeral,
     });
   },

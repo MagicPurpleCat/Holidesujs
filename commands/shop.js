@@ -11,6 +11,7 @@ import { SlashCommandBuilder,
   MessageFlags } from 'discord.js';
 import { getDb, removeCoins, addCoins, runInTransaction, setEphemeral, getEphemeral, deleteEphemeral } from '../database.js';
 import { assignLevelRoles } from './rank.js';
+import { COLOR, fmtNum } from '../utils/ui.js';
 
 // ─── Палитра цветов для мастера создания ──────────────────────────
 const COLOR_PRESETS = [
@@ -80,8 +81,8 @@ function buildCatalogPage(roles, page = 0) {
   const pageRoles = roles.slice(start, start + ITEMS_PER_PAGE);
 
   const embed = new EmbedBuilder()
-    .setColor(0x5865f2)
-    .setTitle('🛒 Каталог ролей')
+    .setColor(COLOR.accent)
+    .setTitle('Каталог ролей')
     .setDescription(`Всего активных лотов: **${roles.length}**`)
     .setFooter({
       text: `Страница ${page + 1} / ${Math.ceil(roles.length / ITEMS_PER_PAGE) || 1}`,
@@ -158,32 +159,29 @@ function buildCatalogPage(roles, page = 0) {
  */
 function buildMainMenu() {
   const embed = new EmbedBuilder()
-    .setColor(0xf1c40f)
-    .setTitle('🛍 Магазин ⚡HLD')
+    .setColor(COLOR.gold)
+    .setTitle('Магазин')
     .setDescription(
-      'Добро пожаловать в магазин сервера!\n\n' +
-      '**💰 Валюта:** ⚡HLD\n' +
-      '**🔹 Заработок:** Голосовые каналы (⏱ +⚡HLD/мин) и сообщения\n\n' +
-      'Выбери категорию ниже:'
+      'Валюта **⚡HLD**. Фарм в войсе и за сообщения.\nВыбери раздел кнопкой ниже.'
     )
     .addFields(
       {
-        name: '🛒 Каталог ролей',
-        value: 'Готовые роли, созданные участниками. Купи и носи!',
-        inline: false,
+        name: 'Каталог ролей',
+        value: 'Готовые роли участников.',
+        inline: true,
       },
       {
-        name: '➕ Создать свою роль',
-        value: `Создай уникальную роль за **${CREATION_COST} ⚡HLD** и продавай её другим!`,
-        inline: false,
+        name: 'Своя роль',
+        value: `Создать за **${fmtNum(CREATION_COST)}** ⚡HLD и продавать.`,
+        inline: true,
       },
       {
-        name: '⚡ Бусты (Усиления)',
-        value: 'Временные ускорения: удвоенный XP, скидки и другое.',
-        inline: false,
+        name: 'Бусты',
+        value: 'Временный XP и скидки.',
+        inline: true,
       }
     )
-    .setFooter({ text: 'Используй /rank для просмотра уровня' })
+    .setFooter({ text: 'Holidesu · shop' });
 
   const row1 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
@@ -1163,7 +1161,7 @@ async function deactivateSale(interaction, roleId) {
 export default {
   data: new SlashCommandBuilder()
     .setName('shop')
-    .setDescription('🛍 Магазин ⚡HLD: роли, создание, бусты'),
+    .setDescription('Роли, своя роль и бусты за ⚡HLD'),
 
   async execute(interaction) {
     const { embed, components } = buildMainMenu();

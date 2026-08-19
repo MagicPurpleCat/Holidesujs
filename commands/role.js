@@ -9,7 +9,7 @@ const MAX_PERSONAL_ROLES = 1; // макс. 1 роль на пользовате�
 export default {
   data: new SlashCommandBuilder()
     .setName('role')
-    .setDescription('🎭 Управление личными ролями')
+    .setDescription('Личная роль: создать, надеть, скрыть')
     .addSubcommand((sub) =>
       sub.setName('create').setDescription('Создать личную роль (модальное окно)')
     )

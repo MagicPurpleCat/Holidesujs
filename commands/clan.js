@@ -1,5 +1,7 @@
 import { SlashCommandBuilder, EmbedBuilder, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { getDb, ensureUser, removeCoins, runInTransaction, setEphemeral, getEphemeral, deleteEphemeral } from '../database.js';
+import { unlockAchievement } from '../modules/progress.js';
+import { COLOR, fmtHld, fmtNum } from '../utils/ui.js';
 
 const CREATE_COST = 1000;
 const INVITE_TTL_MS = 10 * 60 * 1000;
@@ -50,7 +52,7 @@ function clanPower(db, clanId, guildId) {
 export default {
   data: new SlashCommandBuilder()
     .setName('clan')
-    .setDescription('👥 Кланы: создание, банк, инвайты')
+    .setDescription('Клан: банк, магазин, войны и инвайты')
     .addSubcommand((sub) =>
       sub
         .setName('create')
@@ -104,6 +106,21 @@ export default {
     )
     .addSubcommand((sub) =>
       sub
+        .setName('shop')
+        .setDescription('Клановый магазин за банк')
+        .addStringOption((opt) =>
+          opt.setName('товар')
+            .setDescription('Что купить (пусто = каталог)')
+            .setRequired(false)
+            .addChoices(
+              { name: 'Буст фарма +20% на 7 дней (5000)', value: 'boost' },
+              { name: 'Тег в профиле (2500)', value: 'tag' },
+              { name: 'Роль клана (8000)', value: 'role' },
+            )
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
         .setName('wars')
         .setDescription('Война кланов: сравнение силы или ставка из банка')
         .addStringOption((opt) =>
@@ -127,6 +144,7 @@ export default {
       if (sub === 'leave') return handleLeave(interaction, db);
       if (sub === 'deposit') return handleDeposit(interaction, db);
       if (sub === 'bank') return handleBank(interaction, db);
+      if (sub === 'shop') return handleClanShop(interaction, db);
       if (sub === 'wars') return handleWars(interaction, db);
     } catch (error) {
       console.error('[CLAN] Ошибка:', error);
@@ -200,9 +218,10 @@ async function handleCreate(interaction, db) {
   }
 
   const embed = new EmbedBuilder()
-    .setColor(0x2ecc71)
-    .setTitle('👥 Клан создан')
-    .setDescription(`**[${tag}] ${name}**\nЛидер: <@${interaction.user.id}>\nСписано: **${CREATE_COST} ⚡HLD**`);
+    .setColor(COLOR.success)
+    .setTitle(`[${tag}] ${name}`)
+    .setDescription(`Клан создан. Лидер <@${interaction.user.id}>\nСписано ${fmtHld(CREATE_COST)}`)
+    .setFooter({ text: 'Holidesu · clan' });
 
   await interaction.reply({ embeds: [embed] });
 }
@@ -237,16 +256,17 @@ async function handleInfo(interaction, db) {
     .join('\n');
 
   const embed = new EmbedBuilder()
-    .setColor(0x5865f2)
+    .setColor(COLOR.accent)
     .setTitle(`[${clan.tag}] ${clan.name}`)
     .addFields(
-      { name: '👑 Лидер', value: `<@${clan.owner_id}>`, inline: true },
-      { name: '💰 Банк', value: `**${clan.bank_balance} ⚡HLD**`, inline: true },
-      { name: '👥 Состав', value: `**${power.members}** чел.`, inline: true },
-      { name: '⚔️ Сила', value: `Уровни: **${power.levels}**\nXP: **${power.xp}**`, inline: true },
-      { name: '📅 Создан', value: clan.created_at || '—', inline: true },
+      { name: 'Лидер', value: `<@${clan.owner_id}>`, inline: true },
+      { name: 'Банк', value: fmtHld(clan.bank_balance), inline: true },
+      { name: 'Состав', value: `**${fmtNum(power.members)}**`, inline: true },
+      { name: 'Сила', value: `уровни **${fmtNum(power.levels)}** · XP **${fmtNum(power.xp)}**`, inline: true },
+      { name: 'Создан', value: clan.created_at || '—', inline: true },
       { name: 'Участники', value: list || '—', inline: false },
-    );
+    )
+    .setFooter({ text: 'Holidesu · clan' });
 
   await interaction.reply({ embeds: [embed] });
 }
@@ -301,6 +321,9 @@ async function handleJoin(interaction, db) {
   db.prepare('INSERT INTO clan_members (clan_id, user_id, role) VALUES (?, ?, ?)')
     .run(clan.clan_id, interaction.user.id, 'member');
   deleteEphemeral(inviteKey(interaction.guildId, interaction.user.id));
+  if (clan.discord_role_id) {
+    await interaction.member?.roles.add(clan.discord_role_id).catch(() => {});
+  }
 
   await interaction.reply({
     content: `✅ Ты вступил в **[${clan.tag}] ${clan.name}**.`,
@@ -313,13 +336,17 @@ async function handleLeave(interaction, db) {
     return interaction.reply({ content: '❌ Ты не в клане.', flags: MessageFlags.Ephemeral });
   }
 
+  if (clan.discord_role_id) {
+    await interaction.member?.roles.remove(clan.discord_role_id).catch(() => {});
+  }
+
   if (clan.member_role === 'leader' || clan.owner_id === interaction.user.id) {
     const others = db.prepare(
       'SELECT user_id, role FROM clan_members WHERE clan_id = ? AND user_id != ? ORDER BY CASE role WHEN \'officer\' THEN 0 ELSE 1 END, joined_at'
     ).all(clan.clan_id, interaction.user.id);
 
-    db.prepare('DELETE FROM clan_members WHERE clan_id = ? AND user_id = ?')
-      .run(clan.clan_id, interaction.user.id);
+  db.prepare('DELETE FROM clan_members WHERE clan_id = ? AND user_id = ?')
+    .run(clan.clan_id, interaction.user.id);
 
     if (others.length === 0) {
       db.prepare('DELETE FROM clans WHERE clan_id = ?').run(clan.clan_id);
@@ -370,13 +397,14 @@ async function handleBank(interaction, db) {
   const mine = getMemberClan(db, interaction.user.id, interaction.guildId);
   const top = db.prepare('SELECT tag, name, bank_balance FROM clans WHERE guild_id = ? ORDER BY bank_balance DESC LIMIT 5').all(interaction.guildId);
   const lines = top.length
-    ? top.map((c, i) => `${i + 1}. **[${c.tag}] ${c.name}** — ${c.bank_balance} ⚡HLD`).join('\n')
+    ? top.map((c, i) => `${i + 1}. **[${c.tag}] ${c.name}** — ${fmtHld(c.bank_balance)}`).join('\n')
     : 'Пока нет кланов.';
 
   const embed = new EmbedBuilder()
-    .setColor(0xf1c40f)
-    .setTitle('🏦 Клановые банки')
-    .setDescription(lines);
+    .setColor(COLOR.gold)
+    .setTitle('Клановые банки')
+    .setDescription(lines)
+    .setFooter({ text: 'Holidesu · clan bank' });
 
   if (mine) {
     embed.addFields({
@@ -387,6 +415,90 @@ async function handleBank(interaction, db) {
   }
 
   await interaction.reply({ embeds: [embed] });
+}
+
+const CLAN_SHOP = {
+  boost: { price: 5000, label: 'Буст фарма +20% на 7 дней' },
+  tag: { price: 2500, label: 'Тег клана в профиле' },
+  role: { price: 8000, label: 'Discord-роль клана' },
+};
+
+async function handleClanShop(interaction, db) {
+  const clan = getMemberClan(db, interaction.user.id, interaction.guildId);
+  if (!clan) {
+    return interaction.reply({ content: '❌ Ты не в клане.', flags: MessageFlags.Ephemeral });
+  }
+  const item = interaction.options.getString('товар');
+  if (!item) {
+    const boostUntil = clan.farm_boost_until
+      ? `до ${clan.farm_boost_until}`
+      : 'нет';
+    const embed = new EmbedBuilder()
+      .setColor(COLOR.purple)
+      .setTitle(`[${clan.tag}] магазин`)
+      .setDescription(
+        `Банк ${fmtHld(clan.bank_balance)}\n\n` +
+        `**boost** — ${CLAN_SHOP.boost.label} — ${fmtHld(CLAN_SHOP.boost.price)}\nсейчас: ${boostUntil}\n\n` +
+        `**tag** — ${CLAN_SHOP.tag.label} — ${fmtHld(CLAN_SHOP.tag.price)} · ${clan.show_tag ? 'куплено' : 'нет'}\n\n` +
+        `**role** — ${CLAN_SHOP.role.label} — ${fmtHld(CLAN_SHOP.role.price)}`,
+      )
+      .setFooter({ text: 'Holidesu · /clan shop товар:boost · только лидер' });
+    return interaction.reply({ embeds: [embed] });
+  }
+
+  if (clan.owner_id !== interaction.user.id && clan.member_role !== 'leader') {
+    return interaction.reply({ content: '❌ Покупать может только лидер.', flags: MessageFlags.Ephemeral });
+  }
+  if (item === 'tag' && clan.show_tag) {
+    return interaction.reply({ content: '✅ Тег уже куплен.', flags: MessageFlags.Ephemeral });
+  }
+  if (item === 'role' && clan.discord_role_id) {
+    return interaction.reply({
+      content: `✅ Роль клана уже есть: <@&${clan.discord_role_id}>.`,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+  const spec = CLAN_SHOP[item];
+  const pay = db.prepare(
+    'UPDATE clans SET bank_balance = bank_balance - ? WHERE clan_id = ? AND bank_balance >= ?',
+  ).run(spec.price, clan.clan_id, spec.price);
+  if (pay.changes === 0) {
+    return interaction.reply({
+      content: `❌ В банке нужно **${spec.price} ⚡HLD**.`,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  if (item === 'boost') {
+    const until = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    db.prepare('UPDATE clans SET farm_boost_until = ? WHERE clan_id = ?').run(until, clan.clan_id);
+    return interaction.reply({ content: `🚀 Буст фарма +20% до <t:${Math.floor(Date.parse(until) / 1000)}:F>.` });
+  }
+  if (item === 'tag') {
+    db.prepare('UPDATE clans SET show_tag = 1 WHERE clan_id = ?').run(clan.clan_id);
+    return interaction.reply({ content: '🏷 Тег клана будет виден в `/profile`.' });
+  }
+
+  try {
+    const role = await interaction.guild.roles.create({
+      name: `[${clan.tag}] ${clan.name}`.slice(0, 100),
+      mentionable: false,
+      reason: 'Клановый магазин',
+    });
+    db.prepare('UPDATE clans SET discord_role_id = ? WHERE clan_id = ?').run(role.id, clan.clan_id);
+    const members = db.prepare('SELECT user_id FROM clan_members WHERE clan_id = ?').all(clan.clan_id);
+    for (const m of members) {
+      const member = await interaction.guild.members.fetch(m.user_id).catch(() => null);
+      if (member) await member.roles.add(role).catch(() => {});
+    }
+    return interaction.reply({ content: `🎭 Роль клана создана: <@&${role.id}>.` });
+  } catch (err) {
+    db.prepare('UPDATE clans SET bank_balance = bank_balance + ? WHERE clan_id = ?').run(spec.price, clan.clan_id);
+    return interaction.reply({
+      content: `❌ Не удалось создать роль: ${err.message}. Деньги возвращены в банк.`,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
 }
 
 async function handleWars(interaction, db) {
@@ -555,6 +667,11 @@ export async function handleClanWarButton(interaction) {
         { name: `[${toClan.tag}]`, value: `Очки: **${outcome.score2}**`, inline: true },
       );
     await interaction.update({ content: null, embeds: [embed], components: [] });
+    if (outcome.winnerTag) {
+      const winner = outcome.winnerTag === fromClan.tag ? fromClan : toClan;
+      const members = db.prepare('SELECT user_id FROM clan_members WHERE clan_id = ?').all(winner.clan_id);
+      for (const m of members) unlockAchievement(m.user_id, guildId, 'clan_war_win');
+    }
   } catch (err) {
     if (err.message === 'NO_BANK') {
       await interaction.reply({

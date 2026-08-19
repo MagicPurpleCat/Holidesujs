@@ -1,5 +1,6 @@
 import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
 import { getDb, ensureUser, getEphemeral, setEphemeral } from '../database.js';
+import { COLOR } from '../utils/ui.js';
 
 const COOLDOWN_MS = 60 * 60 * 1000;
 const DAILY_CAP = 20;
@@ -63,9 +64,10 @@ async function giveRep(interaction) {
 
   const row = db.prepare('SELECT total_reactions_received FROM users WHERE guild_id = ? AND user_id = ?').get(interaction.guildId, target.id);
   const embed = new EmbedBuilder()
-    .setColor(0x2ecc71)
-    .setTitle('👍 Репутация')
-    .setDescription(`<@${fromId}> повысил репутацию <@${target.id}>.\nСейчас: **${row.total_reactions_received}**`);
+    .setColor(COLOR.aqua)
+    .setTitle('Репутация')
+    .setDescription(`<@${fromId}> отметил <@${target.id}>\nСейчас **${row.total_reactions_received}**`)
+    .setFooter({ text: 'Holidesu · раз в час одному человеку' });
 
   await interaction.reply({ embeds: [embed] });
 }
@@ -73,7 +75,7 @@ async function giveRep(interaction) {
 export default {
   data: new SlashCommandBuilder()
     .setName('реп')
-    .setDescription('👍 Повысить репутацию пользователя')
+    .setDescription('Плюс к репутации. Не себе, раз в час')
     .addUserOption((opt) =>
       opt.setName('пользователь').setDescription('Кому дать репутацию').setRequired(true)
     ),
@@ -83,7 +85,7 @@ export default {
 export const repAlias = {
   data: new SlashCommandBuilder()
     .setName('rep')
-    .setDescription('👍 Повысить репутацию пользователя')
+    .setDescription('Плюс к репутации. Не себе, раз в час')
     .addUserOption((opt) =>
       opt.setName('user').setDescription('Кому дать репутацию').setRequired(true)
     ),

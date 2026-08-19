@@ -1,444 +1,450 @@
 // ============================================================================
-// canvas-profile-minimal.js
-// Генератор изображения профиля — минималистичный дизайн
-// Холст: 1280×720 px
+// Карточка профиля 1920×1080
 // ============================================================================
 
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-// Ленивая загрузка canvas: если пакета нет, generateProfileImage вернёт null.
 let canvasModule = null;
 try {
   canvasModule = await import('canvas');
-} catch (_) {
+} catch {
   canvasModule = null;
 }
 const { createCanvas, loadImage, registerFont } = canvasModule || {};
 
-// ============================================================================
-// КОНФИГУРАЦИЯ ХОЛСТА
-// ============================================================================
-const W = 1920;   // CANVAS_WIDTH
-const H = 1080;   // CANVAS_HEIGHT
-
-// ============================================================================
-// ЦВЕТА
-// ============================================================================
-const C = {
-    ORANGE:      '#FF5733',
-    TURQUOISE:   '#33E1C4',
-    GOLD:        '#FFD700',
-    WHITE:       '#FFFFFF',
-    GRAY_LIGHT:  '#B0B0B0',
-    GRAY_MID:    '#888899',
-    GRAY_DARK:   '#333333',
-    BG_CARD:     '#1E1E24',
-    GRAY_FOOTER: '#666677',
-};
-
-// ============================================================================
-// ШРИФТЫ
-// ============================================================================
+const W = 1920;
+const H = 1080;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const FONTS_DIR = path.join(__dirname, '..', 'fonts');
-const FONT_BOLD_PATH    = path.join(FONTS_DIR, 'Roboto-Bold.ttf');
-const FONT_REGULAR_PATH = path.join(FONTS_DIR, 'Roboto-Regular.ttf');
-const B = 'RobotoBold';
-const R = 'RobotoRegular';
 
-try {
-    if (registerFont) {
-        if (fs.existsSync(FONT_BOLD_PATH))    registerFont(FONT_BOLD_PATH, { family: B });
-        if (fs.existsSync(FONT_REGULAR_PATH)) registerFont(FONT_REGULAR_PATH, { family: R });
-    }
-} catch (_) { console.warn('[Canvas] Шрифты не найдены'); }
-
-// ============================================================================
-// ⭐ КОНФИГУРАЦИЯ РАСПОЛОЖЕНИЯ (все x, y здесь)
-// Меняй любое число — всё пересчитается
-// ============================================================================
-const L = {
-    // ─── СЕТКА ───
-    col1: {
-        x: 58,    // W * 0.03  — левый отступ
-        w: 422,   // W * 0.22  — ширина левой колонки
-    },
-    col2: {
-        x: 528,   // W * 0.03 + W * 0.22 + W * 0.025 — начало правой колонки
-        w: 720,   // W - col2.x - 32 (правый отступ)
-    },
-
-    // ─── ЛЕВАЯ КОЛОНКА: АВАТАР ───
-    avatar: {
-        x: 136,   // (col1.x + (col1.w - diam) / 2) — центрирован
-        y: 54,    // H * 0.05
-        diam: 454,// H * 0.42
-    },
-    name: {
-        x: 269,   // col1.x + col1.w / 2 — центр левой колонки
-        y: 540,   // avatar.y + avatar.diam + 32
-        size: 48,
-    },
-    nick: {
-        x: 269,   // то же, что name.x
-        y: 574,   // name.y + 34
-        size: 22,
-    },
-    balance: {
-        x: 162,   // центрирован: col1.x + (col1.w - 295) / 2
-        y: 617,   // nick.y + 43
-        w: 295,   // col1.w * 0.70
-        h: 45,    // H * 0.042
-    },
-
-// ─── ПРАВАЯ КОЛОНКА: КАРТОЧКИ ───
-    card: {
-        x: 728,   // col2.x + (col2.w - 320) / 2 = 528 + 200 — центрирован
-        w: 320,
-        gapY: 19, // H * 0.018 — зазор между карточками
-    },
-    level: {
-        y: 54,    // H * 0.05 (Привилегия удалена)
-        h: 90,    // H * 0.083
-    },
-    lvlNum: {
-        x: 748,   // card.x + 20
-        y: 58,    // level.y + 4
-    },
-    bar: {
-        x: 760,   // card.x + (card.w - 256) / 2 = 728 + 32 — центрирован
-        y: 121,   // lvlNum.y + 63
-        w: 256,   // card.w * 0.80
-        h: 14,
-    },
-
-    // ─── МЕТРИКИ ───
-    metrics: {
-        y: 171,   // level.y + level.h + gapY + 8(отступ)
-        h: 55,    // H * 0.051
-    },
-
-    // ─── ДЕЙСТВИЯ ───
-    heart: {
-        x: 728,   // card.x
-        y: 411,   // metrics.y + 3*metrics.h + 2*gapY + 37
-        w: 280,
-        h: 55,
-    },
-    bookmark: {
-        x: 728,   // card.x (stacked под heart)
-        y: 485,   // heart.y + heart.h + gapY
-        w: 280,
-        h: 55,
-    },
-
-    // ─── ФУТЕР ───
-    footer: {
-        date: {
-            x: 640,   // W / 2
-            y: 575,   // H - 80 (снизу)
-        },
-        about: {
-            x: 640,   // W / 2
-            y: 605,   // footer.date.y + 30
-        },
-    },
+const C = {
+  accent: '#FF5733',
+  aqua: '#33E1C4',
+  gold: '#FFD700',
+  white: '#F5F5F7',
+  muted: 'rgba(245,245,247,0.62)',
+  faint: 'rgba(245,245,247,0.38)',
+  glass: 'rgba(10,10,16,0.72)',
+  glass2: 'rgba(255,255,255,0.06)',
+  line: 'rgba(255,255,255,0.12)',
+  barBg: 'rgba(0,0,0,0.45)',
 };
 
-// ============================================================================
-// ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
-// ============================================================================
+let FONT = 'sans-serif';
+let FONT_BOLD = 'sans-serif';
 
-function roundRect(ctx, x, y, w, h, r) {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.lineTo(x + w - r, y);
-    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-    ctx.lineTo(x + w, y + h - r);
-    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-    ctx.lineTo(x + r, y + h);
-    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-    ctx.lineTo(x, y + r);
-    ctx.quadraticCurveTo(x, y, x + r, y);
-    ctx.closePath();
+function tryRegister(file, family) {
+  if (!registerFont || !fs.existsSync(file)) return false;
+  try {
+    registerFont(file, { family });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-function wrapText(ctx, text, maxW) {
-    if (!text) return [];
-    const words = text.split(' ');
-    const lines = [];
-    let line = '';
-    for (const w of words) {
-        const test = line ? `${line} ${w}` : w;
-        if (ctx.measureText(test).width > maxW && line) { lines.push(line); line = w; }
-        else { line = test; }
-    }
-    if (line) lines.push(line);
-    return lines;
+const fontsDir = path.join(__dirname, '..', 'fonts');
+const winFonts = process.env.SystemRoot
+  ? path.join(process.env.SystemRoot, 'Fonts')
+  : 'C:\\Windows\\Fonts';
+
+if (tryRegister(path.join(fontsDir, 'Roboto-Bold.ttf'), 'HolidesuBold')
+  || tryRegister(path.join(winFonts, 'segoeuib.ttf'), 'HolidesuBold')) {
+  FONT_BOLD = 'HolidesuBold';
+}
+if (tryRegister(path.join(fontsDir, 'Roboto-Regular.ttf'), 'Holidesu')
+  || tryRegister(path.join(winFonts, 'segoeui.ttf'), 'Holidesu')) {
+  FONT = 'Holidesu';
+}
+
+function font(size, bold = false) {
+  return `${bold ? 'bold ' : ''}${size}px ${bold ? FONT_BOLD : FONT}, ${FONT}, sans-serif`;
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  const radius = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.arcTo(x + w, y, x + w, y + h, radius);
+  ctx.arcTo(x + w, y + h, x, y + h, radius);
+  ctx.arcTo(x, y + h, x, y, radius);
+  ctx.arcTo(x, y, x + w, y, radius);
+  ctx.closePath();
+}
+
+function fillRound(ctx, x, y, w, h, r, fill) {
+  roundRect(ctx, x, y, w, h, r);
+  ctx.fillStyle = fill;
+  ctx.fill();
+}
+
+function strokeRound(ctx, x, y, w, h, r, stroke, width = 1) {
+  roundRect(ctx, x, y, w, h, r);
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = width;
+  ctx.stroke();
 }
 
 function trunc(ctx, text, maxW) {
-    let t = text || 'Пользователь';
-    if (ctx.measureText(t).width <= maxW) return t;
-    while (ctx.measureText(t + '…').width > maxW && t.length > 1) t = t.slice(0, -1);
-    return t + '…';
+  let t = String(text || '');
+  if (!t) return '';
+  if (ctx.measureText(t).width <= maxW) return t;
+  while (t.length > 1 && ctx.measureText(`${t}…`).width > maxW) t = t.slice(0, -1);
+  return `${t}…`;
 }
 
-function fmtDate(d) {
-    if (!d) return 'неизвестно';
-    const dt = new Date(d);
-    if (isNaN(dt.getTime())) return d;
-    return `${String(dt.getDate()).padStart(2,'0')}.${String(dt.getMonth()+1).padStart(2,'0')}.${dt.getFullYear()}`;
-}
-
-// ============================================================================
-// ЗАГЛУШКА АВАТАРА
-// ============================================================================
-function drawHorns(ctx, x, y, size) {
-    const r = size / 2, cx = x + r, cy = y + r;
-    ctx.save();
-    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.clip();
-    ctx.fillStyle = '#1E1E24'; ctx.fillRect(x, y, size, size);
-    ctx.fillStyle = '#2E2E38';
-    ctx.beginPath(); ctx.ellipse(cx, cy + size * 0.04, r * 0.40, r * 0.55, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = C.ORANGE;
-    ctx.beginPath(); ctx.arc(cx - r * 0.12, cy - r * 0.02, r * 0.04, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(cx + r * 0.12, cy - r * 0.02, r * 0.04, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = C.ORANGE; ctx.lineWidth = r * 0.04; ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(cx - r * 0.18, cy - r * 0.22); ctx.quadraticCurveTo(cx - r * 0.38, cy - r * 0.55, cx - r * 0.18, cy - r * 0.72); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(cx + r * 0.18, cy - r * 0.22); ctx.quadraticCurveTo(cx + r * 0.38, cy - r * 0.55, cx + r * 0.18, cy - r * 0.72); ctx.stroke();
-    ctx.lineWidth = r * 0.025;
-    ctx.beginPath(); ctx.moveTo(cx - r * 0.28, cy - r * 0.42); ctx.lineTo(cx - r * 0.36, cy - r * 0.38); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(cx + r * 0.28, cy - r * 0.42); ctx.lineTo(cx + r * 0.36, cy - r * 0.38); ctx.stroke();
-    ctx.strokeStyle = '#555566'; ctx.lineWidth = r * 0.015;
-    ctx.beginPath(); ctx.arc(cx, cy + r * 0.14, r * 0.10, 0.2, Math.PI - 0.2); ctx.stroke();
-    ctx.restore();
-}
-
-// ============================================================================
-// ЛЕВАЯ КОЛОНКА
-// ============================================================================
-async function drawLeft(ctx, data) {
-    // Аватар
-    let loaded = false;
-    if (data.avatarUrl) {
-        try {
-            const img = await loadImage(data.avatarUrl);
-            const cx = L.avatar.x + L.avatar.diam / 2;
-            const cy = L.avatar.y + L.avatar.diam / 2;
-            ctx.save();
-            ctx.beginPath(); ctx.arc(cx, cy, L.avatar.diam / 2, 0, Math.PI * 2); ctx.closePath(); ctx.clip();
-            ctx.drawImage(img, L.avatar.x, L.avatar.y, L.avatar.diam, L.avatar.diam);
-            ctx.restore();
-            ctx.save();
-            ctx.shadowColor = C.ORANGE; ctx.shadowBlur = 30; ctx.strokeStyle = C.ORANGE; ctx.lineWidth = 4;
-            ctx.beginPath(); ctx.arc(cx, cy, L.avatar.diam / 2 - 2, 0, Math.PI * 2); ctx.stroke();
-            ctx.restore();
-            loaded = true;
-        } catch (_) {}
-    }
-    if (!loaded) {
-        ctx.save(); drawHorns(ctx, L.avatar.x, L.avatar.y, L.avatar.diam); ctx.restore();
-        const cx = L.avatar.x + L.avatar.diam / 2;
-        const cy = L.avatar.y + L.avatar.diam / 2;
-        ctx.save();
-        ctx.shadowColor = C.ORANGE; ctx.shadowBlur = 30; ctx.strokeStyle = C.ORANGE; ctx.lineWidth = 4;
-        ctx.beginPath(); ctx.arc(cx, cy, L.avatar.diam / 2 - 2, 0, Math.PI * 2); ctx.stroke();
-        ctx.restore();
-    }
-
-    // Имя
-    const maxNameW = L.col1.w - 46;
-    ctx.save();
-    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    ctx.fillStyle = C.WHITE;
-    ctx.font = `bold ${L.name.size}px ${B}, ${R}, sans-serif`;
-    ctx.fillText(trunc(ctx, data.username || 'Пользователь', maxNameW), L.name.x, L.name.y);
-    ctx.restore();
-
-    // Ник
-    ctx.save();
-    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    ctx.fillStyle = C.TURQUOISE;
-    ctx.font = `${L.nick.size}px ${R}, sans-serif`;
-    ctx.fillText(data.nickname || '@user', L.nick.x, L.nick.y);
-    ctx.restore();
-
-    // Баланс
-    ctx.save();
-    roundRect(ctx, L.balance.x, L.balance.y, L.balance.w, L.balance.h, 10);
-    ctx.fillStyle = C.BG_CARD; ctx.fill();
-    ctx.restore();
-
-    ctx.save();
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = C.GOLD;
-    ctx.font = `bold 22px ${B}, ${R}, sans-serif`;
-    const bal = (data.balance ?? 0).toLocaleString();
-    ctx.fillText(`⚡HLD ${bal}`, L.name.x, L.balance.y + L.balance.h / 2);
-    ctx.restore();
-}
-
-// ============================================================================
-// ПРАВАЯ КОЛОНКА
-// ============================================================================
-
-// Уровень + прогресс-бар
-function drawLevel(ctx, data) {
-    ctx.save();
-    roundRect(ctx, L.card.x, L.level.y, L.card.w, L.level.h, 12);
-    ctx.fillStyle = C.BG_CARD; ctx.fill();
-    ctx.restore();
-
-    // Цифра уровня + префикс "LVL"
-    ctx.save();
-    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-    ctx.fillStyle = C.ORANGE;
-    ctx.font = `bold 48px ${B}, ${R}, sans-serif`;
-    ctx.fillText(`LVL ${data.level || 0}`, L.lvlNum.x, L.lvlNum.y);
-    ctx.restore();
-
-    // Фон бара
-    ctx.save();
-    roundRect(ctx, L.bar.x, L.bar.y, L.bar.w, L.bar.h, 7);
-    ctx.fillStyle = C.GRAY_DARK; ctx.fill();
-    ctx.restore();
-
-    // Заливка бара
-    const xp = data.xpPercent ?? 0;
-    const fill = Math.min(Math.max((xp / 100) * L.bar.w, 4), L.bar.w);
-    ctx.save();
-    roundRect(ctx, L.bar.x, L.bar.y, fill, L.bar.h, 7);
-    const grad = ctx.createLinearGradient(L.bar.x, 0, L.bar.x + L.bar.w, 0);
-    grad.addColorStop(0, C.ORANGE); grad.addColorStop(0.5, '#FF7733'); grad.addColorStop(1, '#FF9933');
-    ctx.fillStyle = grad; ctx.fill();
-    ctx.restore();
-
-    // Текст %
-    ctx.save();
-    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = C.GRAY_MID;
-    ctx.font = `14px ${R}, sans-serif`;
-    ctx.fillText(`${xp.toFixed(1)}%`, L.bar.x + L.bar.w + 10, L.bar.y + L.bar.h / 2);
-    ctx.restore();
-}
-
-// Метрики (только значения, без подписей и иконок)
-function drawMetrics(ctx, data) {
-    const items = [
-        data.rank ? `${data.rank} место` : '—',
-        `${(data.voiceMinutes || 0).toLocaleString()} мин.`,
-        `${data.reputation || 0}`,
-    ];
-
-    items.forEach((val, i) => {
-        const y = L.metrics.y + i * (L.metrics.h + L.card.gapY);
-
-        ctx.save();
-        roundRect(ctx, L.card.x, y, L.card.w, L.metrics.h, 10);
-        ctx.fillStyle = C.BG_CARD; ctx.fill();
-        ctx.restore();
-
-        ctx.save(); ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-        ctx.fillStyle = C.WHITE; ctx.font = `bold 17px ${B}, ${R}, sans-serif`;
-        ctx.fillText(val, L.card.x + 25, y + L.metrics.h / 2); ctx.restore();
-    });
-}
-
-// Действия (Сердце + Закладка) — без иконок
-function drawActions(ctx, data) {
-    // Сердце
-    ctx.save();
-    roundRect(ctx, L.heart.x, L.heart.y, L.heart.w, L.heart.h, 12);
-    ctx.fillStyle = C.BG_CARD; ctx.fill();
-    ctx.restore();
-
-    ctx.save(); ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = C.GRAY_LIGHT; ctx.font = `17px ${R}, sans-serif`;
-    ctx.fillText(data.marriageWith || 'Отсутствует', L.heart.x + 25, L.heart.y + L.heart.h / 2); ctx.restore();
-
-    // Закладка
-    ctx.save();
-    roundRect(ctx, L.bookmark.x, L.bookmark.y, L.bookmark.w, L.bookmark.h, 12);
-    ctx.fillStyle = C.BG_CARD; ctx.fill();
-    ctx.restore();
-
-    ctx.save(); ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = C.GRAY_LIGHT; ctx.font = `17px ${R}, sans-serif`;
-    ctx.fillText(data.favoritePerson || 'Отсутствует', L.bookmark.x + 25, L.bookmark.y + L.bookmark.h / 2); ctx.restore();
-}
-
-// ============================================================================
-// ФУТЕР
-// ============================================================================
-function drawFooter(ctx, data) {
-    // Дата (с подписью "На сервере с:")
-    ctx.save();
-    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    ctx.fillStyle = C.GRAY_LIGHT;
-    ctx.font = `16px ${R}, sans-serif`;
-    ctx.fillText(`На сервере с: ${fmtDate(data.joinDate)}`, L.footer.date.x, L.footer.date.y);
-    ctx.restore();
-
-    // "О себе"
-    ctx.save();
-    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    if (data.about && data.about.trim()) {
-        ctx.fillStyle = C.GRAY_LIGHT;
-        ctx.font = `16px ${R}, sans-serif`;
-        const lines = wrapText(ctx, `О себе: ${data.about}`, W * 0.70);
-        const n = Math.min(lines.length, 2);
-        for (let i = 0; i < n; i++) ctx.fillText(lines[i], L.footer.about.x, L.footer.about.y + i * 24);
-        if (lines.length > n) ctx.fillText('…', L.footer.about.x, L.footer.about.y + n * 24);
+function wrapText(ctx, text, maxW) {
+  if (!text) return [];
+  const words = String(text).split(/\s+/);
+  const lines = [];
+  let line = '';
+  for (const word of words) {
+    const test = line ? `${line} ${word}` : word;
+    if (ctx.measureText(test).width > maxW && line) {
+      lines.push(line);
+      line = word;
     } else {
-        ctx.fillStyle = C.GRAY_FOOTER;
-        ctx.font = `16px ${R}, sans-serif`;
-        ctx.fillText('О себе: не указано', L.footer.about.x, L.footer.about.y);
+      line = test;
     }
-    ctx.restore();
+  }
+  if (line) lines.push(line);
+  return lines;
 }
 
-// ============================================================================
-// ⭐ ГЛАВНАЯ ФУНКЦИЯ
-// ============================================================================
+function drawCover(ctx, img, w, h) {
+  const ir = img.width / img.height;
+  const cr = w / h;
+  let dw;
+  let dh;
+  let dx;
+  let dy;
+  if (ir > cr) {
+    dh = h;
+    dw = h * ir;
+    dx = (w - dw) / 2;
+    dy = 0;
+  } else {
+    dw = w;
+    dh = w / ir;
+    dx = 0;
+    dy = (h - dh) / 2;
+  }
+  ctx.drawImage(img, dx, dy, dw, dh);
+}
+
+function drawFallbackBg(ctx, from, to) {
+  const grad = ctx.createLinearGradient(0, H, W, 0);
+  grad.addColorStop(0, from || '#07070c');
+  grad.addColorStop(0.45, '#12121c');
+  grad.addColorStop(1, to || '#1c1420');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = 'rgba(255,87,51,0.08)';
+  ctx.beginPath();
+  ctx.arc(W * 0.82, H * 0.18, 340, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(51,225,196,0.06)';
+  ctx.beginPath();
+  ctx.arc(W * 0.12, H * 0.86, 280, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawHorns(ctx, x, y, size) {
+  const r = size / 2;
+  const cx = x + r;
+  const cy = y + r;
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.fillStyle = '#1E1E24';
+  ctx.fillRect(x, y, size, size);
+  ctx.fillStyle = '#2E2E38';
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + size * 0.04, r * 0.40, r * 0.55, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = C.accent;
+  ctx.beginPath();
+  ctx.arc(cx - r * 0.12, cy - r * 0.02, r * 0.04, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx + r * 0.12, cy - r * 0.02, r * 0.04, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = C.accent;
+  ctx.lineWidth = r * 0.04;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(cx - r * 0.18, cy - r * 0.22);
+  ctx.quadraticCurveTo(cx - r * 0.38, cy - r * 0.55, cx - r * 0.18, cy - r * 0.72);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(cx + r * 0.18, cy - r * 0.22);
+  ctx.quadraticCurveTo(cx + r * 0.38, cy - r * 0.55, cx + r * 0.18, cy - r * 0.72);
+  ctx.stroke();
+  ctx.restore();
+}
+
+async function drawAvatar(ctx, data, cx, cy, r, accent) {
+  const x = cx - r;
+  const y = cy - r;
+  const size = r * 2;
+
+  ctx.save();
+  ctx.shadowColor = accent;
+  ctx.shadowBlur = 36;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r + 4, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.fill();
+  ctx.restore();
+
+  let loaded = false;
+  if (data.avatarUrl && loadImage) {
+    try {
+      const img = await loadImage(data.avatarUrl);
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, r - 8, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.drawImage(img, x + 8, y + 8, size - 16, size - 16);
+      ctx.restore();
+      loaded = true;
+    } catch {
+      loaded = false;
+    }
+  }
+  if (!loaded) drawHorns(ctx, x + 8, y + 8, size - 16);
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, r - 4, 0, Math.PI * 2);
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = 7;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r - 14, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+}
+
+function drawPill(ctx, text, x, y, fill, color) {
+  ctx.font = font(18, true);
+  const padX = 18;
+  const h = 36;
+  const w = ctx.measureText(text).width + padX * 2;
+  fillRound(ctx, x, y, w, h, 18, fill);
+  ctx.fillStyle = color;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, x + padX, y + h / 2);
+  return w;
+}
+
+function drawStat(ctx, label, value, x, y, w, h) {
+  fillRound(ctx, x, y, w, h, 18, C.glass2);
+  strokeRound(ctx, x, y, w, h, 18, C.line);
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = C.faint;
+  ctx.font = font(15, true);
+  ctx.fillText(label.toUpperCase(), x + 22, y + 18);
+  ctx.fillStyle = C.white;
+  ctx.font = font(28, true);
+  ctx.textBaseline = 'middle';
+  ctx.fillText(trunc(ctx, String(value), w - 44), x + 22, y + h * 0.62);
+}
 
 /**
- * Генерирует PNG-изображение профиля
- * @param {Object} data — данные пользователя
- * @returns {Buffer}
+ * @param {object} data
+ * @returns {Promise<Buffer|null>}
  */
 export async function generateProfileImage(data) {
-    if (!createCanvas) return null;
+  if (!createCanvas) return null;
 
-    const canvas = createCanvas(W, H);
-    const ctx = canvas.getContext('2d');
+  const canvas = createCanvas(W, H);
+  const ctx = canvas.getContext('2d');
+  const accent = data.frameColor || C.accent;
 
-// Фон — картинка photo/fone_1.png
-    const bgPath = path.join(__dirname, '..', 'photo', 'fone_1.png');
-    try {
-        const bg = await loadImage(bgPath);
-        ctx.drawImage(bg, 0, 0, W, H);
-    } catch (_) {
-        // Если картинка не загрузилась — тёмный градиент
-        ctx.save();
-        const grad = ctx.createLinearGradient(0, H, 0, 0);
-        grad.addColorStop(0, '#050508');
-        grad.addColorStop(0.5, '#0a0a0f');
-        grad.addColorStop(1, '#12121a');
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, W, H);
-        ctx.restore();
+  const bgPath = path.join(__dirname, '..', 'photo', 'fone_1.png');
+  try {
+    const bg = await loadImage(bgPath);
+    drawCover(ctx, bg, W, H);
+  } catch {
+    drawFallbackBg(ctx, data.bgFrom, data.bgTo);
+  }
+
+  if (data.bgFrom && data.bgTo) {
+    ctx.save();
+    ctx.globalAlpha = 0.38;
+    const overlay = ctx.createLinearGradient(0, 0, W, H);
+    overlay.addColorStop(0, data.bgFrom);
+    overlay.addColorStop(1, data.bgTo);
+    ctx.fillStyle = overlay;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  }
+
+  ctx.fillStyle = 'rgba(4,4,8,0.42)';
+  ctx.fillRect(0, 0, W, H);
+
+  const panel = { x: 48, y: 48, w: W - 96, h: H - 96 };
+  fillRound(ctx, panel.x, panel.y, panel.w, panel.h, 36, C.glass);
+  strokeRound(ctx, panel.x, panel.y, panel.w, panel.h, 36, C.line, 1.5);
+  ctx.save();
+  roundRect(ctx, panel.x, panel.y, panel.w, panel.h, 36);
+  ctx.clip();
+  ctx.fillStyle = accent;
+  ctx.fillRect(panel.x, panel.y, 8, panel.h);
+  ctx.restore();
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  ctx.fillRect(668, 96, 1, H - 192);
+
+  if (data.frameColor) {
+    strokeRound(ctx, 22, 22, W - 44, H - 44, 42, data.frameColor, 10);
+    strokeRound(ctx, 34, 34, W - 68, H - 68, 38, 'rgba(255,255,255,0.18)', 2);
+  }
+
+  const leftW = 560;
+  const cx = panel.x + 80 + 200;
+  const cy = 268;
+  await drawAvatar(ctx, data, cx, cy, 200, accent);
+
+  const name = data.username || 'Пользователь';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = C.white;
+  ctx.font = font(42, true);
+  ctx.fillText(trunc(ctx, name, leftW - 40), cx, 500);
+
+  ctx.fillStyle = C.aqua;
+  ctx.font = font(22);
+  ctx.fillText(trunc(ctx, data.nickname || '', leftW - 40), cx, 552);
+
+  let badgeY = 604;
+  if (data.clanTag) {
+    ctx.font = font(18, true);
+    const clanText = trunc(ctx, data.clanTag, 360);
+    const clanW = ctx.measureText(clanText).width + 36;
+    drawPill(ctx, clanText, cx - clanW / 2, badgeY, 'rgba(51,225,196,0.16)', C.aqua);
+    badgeY += 50;
+  }
+
+  const bal = `${(data.balance ?? 0).toLocaleString('ru-RU')} HLD`;
+  ctx.font = font(20, true);
+  const balW = ctx.measureText(bal).width + 36;
+  drawPill(ctx, bal, cx - balW / 2, badgeY, 'rgba(255,215,0,0.16)', C.gold);
+
+  const rx = 700;
+  const rw = 1140;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = C.faint;
+  ctx.font = font(14, true);
+  ctx.fillText('ПРОФИЛЬ HOLIDESU', rx, 80);
+
+  fillRound(ctx, rx, 118, rw, 150, 22, C.glass2);
+  strokeRound(ctx, rx, 118, rw, 150, 22, C.line);
+
+  ctx.fillStyle = accent;
+  ctx.font = font(56, true);
+  ctx.textBaseline = 'middle';
+  ctx.fillText(`LVL ${data.level || 1}`, rx + 32, 168);
+
+  const xp = Math.max(0, Math.min(100, Number(data.xpPercent) || 0));
+  ctx.fillStyle = C.muted;
+  ctx.font = font(22);
+  ctx.textAlign = 'right';
+  ctx.fillText(`${xp.toFixed(1)}% до следующего`, rx + rw - 32, 168);
+
+  const barX = rx + 32;
+  const barY = 214;
+  const barW = rw - 64;
+  const barH = 18;
+  fillRound(ctx, barX, barY, barW, barH, 9, C.barBg);
+  const fillW = Math.max(xp > 0 ? 12 : 0, (xp / 100) * barW);
+  if (fillW > 0) {
+    ctx.save();
+    roundRect(ctx, barX, barY, barW, barH, 9);
+    ctx.clip();
+    const grad = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+    grad.addColorStop(0, accent);
+    grad.addColorStop(1, C.gold);
+    ctx.fillStyle = grad;
+    ctx.fillRect(barX, barY, fillW, barH);
+    ctx.restore();
+  }
+
+  const stats = [
+    ['Место', data.rank ? `#${data.rank}` : '—'],
+    ['Сообщения', (data.messages || 0).toLocaleString('ru-RU')],
+    ['Войс, мин', (data.voiceMinutes || 0).toLocaleString('ru-RU')],
+    ['Репутация', (data.reputation || 0).toLocaleString('ru-RU')],
+  ];
+  const gap = 16;
+  const tileW = (rw - gap * 3) / 4;
+  const tileH = 108;
+  const tileY = 290;
+  stats.forEach(([label, value], i) => {
+    drawStat(ctx, label, value, rx + i * (tileW + gap), tileY, tileW, tileH);
+  });
+
+  const infoY = 418;
+  const infoH = 88;
+  const half = (rw - gap) / 2;
+  const married = data.marriageWith && data.marriageWith !== 'Отсутствует';
+  drawStat(ctx, 'Брак', married ? data.marriageWith : 'Не в браке', rx, infoY, half, infoH);
+  drawStat(ctx, 'На сервере с', data.joinDate || 'неизвестно', rx + half + gap, infoY, half, infoH);
+
+  const aboutY = 526;
+  const aboutH = 168;
+  fillRound(ctx, rx, aboutY, rw, aboutH, 22, C.glass2);
+  strokeRound(ctx, rx, aboutY, rw, aboutH, 22, C.line);
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = C.faint;
+  ctx.font = font(15, true);
+  ctx.fillText('О СЕБЕ', rx + 24, aboutY + 18);
+  ctx.fillStyle = data.about ? C.white : C.muted;
+  ctx.font = font(22);
+  const aboutLines = wrapText(ctx, data.about || 'Пока ничего не указано. Можно заполнить в настройках профиля.', rw - 48);
+  aboutLines.slice(0, 3).forEach((line, i) => {
+    ctx.fillText(line, rx + 24, aboutY + 52 + i * 32);
+  });
+
+  const badges = Array.isArray(data.badges) ? data.badges : [];
+  const achY = 716;
+  ctx.fillStyle = C.faint;
+  ctx.font = font(15, true);
+  ctx.fillText('ДОСТИЖЕНИЯ', rx, achY);
+
+  if (!badges.length) {
+    ctx.fillStyle = C.muted;
+    ctx.font = font(20);
+    ctx.fillText('Пока нет — играй, фарми, женись, побеждай в войнах.', rx, achY + 40);
+  } else {
+    let px = rx;
+    let py = achY + 32;
+    ctx.font = font(18, true);
+    for (const badge of badges.slice(0, 12)) {
+      const label = String(badge);
+      const bw = Math.min(ctx.measureText(label).width + 32, 360);
+      if (px + bw > rx + rw) {
+        px = rx;
+        py += 48;
+        if (py > 980) break;
+      }
+      fillRound(ctx, px, py, bw, 40, 20, 'rgba(255,87,51,0.16)');
+      strokeRound(ctx, px, py, bw, 40, 20, 'rgba(255,87,51,0.35)');
+      ctx.fillStyle = C.white;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.font = font(18, true);
+      ctx.fillText(trunc(ctx, label, bw - 24), px + 16, py + 20);
+      px += bw + 10;
     }
+  }
 
-// Сборка
-    await drawLeft(ctx, data);
-    drawLevel(ctx, data);
-    drawMetrics(ctx, data);
-    drawActions(ctx, data);
-    drawFooter(ctx, data);
-
-    return canvas.toBuffer('image/png');
+  return canvas.toBuffer('image/png');
 }
-

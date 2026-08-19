@@ -5,7 +5,7 @@ import { canModerateMember, getUserLevel } from '../utils/permissions.js';
 export default {
   data: new SlashCommandBuilder()
     .setName('mod')
-    .setDescription('🛠 Модерация')
+    .setDescription('Warn, mute, unmute, kick, ban, unban')
     .addSubcommand((sub) =>
       sub
         .setName('warn')

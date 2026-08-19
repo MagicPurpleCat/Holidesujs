@@ -1,6 +1,7 @@
 // === МОДУЛЬ: RELATIONSHIPS (Обработка кнопок брака) ===
 import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { getDb, ensureUser } from '../database.js';
+import { unlockAchievement, getOrCreateFamilyBank, splitFamilyBank } from './progress.js';
 
 /**
  * Обрабатывает нажатие кнопок "Принять" / "Отклонить" для предложения брака.
@@ -63,6 +64,9 @@ export async function handleMarryButton(interaction) {
       // Запись в таблицу relationships
       db.prepare(`INSERT INTO relationships (user1_id, user2_id, status) VALUES (?, ?, 'married')`)
         .run(proposerId, targetId);
+      getOrCreateFamilyBank(g, proposerId, targetId);
+      unlockAchievement(proposerId, g, 'first_marriage');
+      unlockAchievement(targetId, g, 'first_marriage');
 
       const embed = new EmbedBuilder()
         .setColor(0xff69b4)
@@ -120,6 +124,7 @@ export function divorceUser(userId, guildId = '') {
     if (!user || user.relationship_status !== 'married') return { success: false, reason: 'not_married' };
 
     const partnerId = user.relationship_partner_id;
+    if (partnerId) splitFamilyBank(guildId, userId, partnerId);
 
     // Обновляем обоих
     db.prepare(`UPDATE users SET relationship_status = 'divorced', relationship_partner_id = NULL WHERE guild_id = ? AND user_id = ?`)

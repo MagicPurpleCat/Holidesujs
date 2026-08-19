@@ -6,12 +6,14 @@ import {
 import { initDatabase, closeDatabase } from './database.js';
 import { initializeOwnerRights } from './modules/ownerInit.js';
 import { UniversalShardManager } from './src/core/shard-manager.js';
-import { FALLBACK_OWNER_ID, getGuildConfig } from './utils/guildConfig.js';
+import { FALLBACK_OWNER_ID, getGuildConfig, getTriggerChannelId } from './utils/guildConfig.js';
 import { logInfo, logErr, logFatal } from './utils/botLog.js';
 import { registerInteractionHandler } from './handlers/interactions.js';
 import { registerGuildEvents, startVoiceFarmLoop } from './handlers/guildEvents.js';
 import { startDbBackupLoop } from './modules/dbBackup.js';
 import { initVoicePanel, startPanelAutoUpdate } from './modules/voicePanel.js';
+import { startGiveawayLoop } from './commands/giveaway.js';
+import { startSeasonLoop } from './modules/seasons.js';
 import { allCommands } from './commands/index.js';
 
 initDatabase();
@@ -63,12 +65,24 @@ shardManager.start(
       }
 
       for (const [, guild] of client.guilds.cache) {
+        const triggerId = getTriggerChannelId(guild.id);
+        if (!triggerId) {
+          logErr(
+            shardId,
+            'JTC',
+            `Сервер ${guild.name} (${guild.id}): канал-триггер не настроен — приватные комнаты не создаются. Запустите /setup (шаг 7) или задайте TRIGGER_CHANNEL_ID в .env`,
+          );
+        }
+
         setImmediate(() => {
           initVoicePanel(guild).catch((err) => logErr(shardId, 'VOICE_PANEL', `Ошибка инициализации для ${guild.id}: ${err.message}`));
         });
       }
 
       startPanelAutoUpdate(client);
+
+      startGiveawayLoop(client);
+      startSeasonLoop(client);
 
       logInfo(shardId, 'MAIN', `Полностью готов. Серверов: ${client.guilds.cache.size}.`);
     } catch (err) {

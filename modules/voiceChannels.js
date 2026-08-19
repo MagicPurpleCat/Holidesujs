@@ -9,6 +9,7 @@ import { EmbedBuilder,
   PermissionFlagsBits, MessageFlags } from 'discord.js';
 import { getDb } from '../database.js';
 import { getGuildConfig, FALLBACK_TRIGGER_CHANNEL_ID } from '../utils/guildConfig.js';
+import { publishRoomPanel, removeRoomPanelMessage } from '../commands/room-settings.js';
 
 // ══════════════════════════════════════════════════════════════════
 // АВТО-СОЗДАНИЕ ГОЛОСОВЫХ КАНАЛОВ (БЕЗ ТЕКСТОВОГО КАНАЛА)
@@ -16,9 +17,9 @@ import { getGuildConfig, FALLBACK_TRIGGER_CHANNEL_ID } from '../utils/guildConfi
 //
 // МЕХАНИКА:
 // 1. Пользователь заходит в канал-триггер (TRIGGER_CHANNEL_ID).
-// 2. Бот БЕСПЛАТНО создаёт ТОЛЬКО голосовой канал: "{Ник} | Приватно".
+// 2. Бот создаёт голосовой канал: "{Ник} | Приватно".
 // 3. Бот телепортирует пользователя в новый голосовой канал.
-// 4. Панель управления комнатой доступна через кнопку «🎮 Управлять комнатой».
+// 4. Панель управления отправляется в чат созданного голосового канала.
 //
 // ПЕРЕДАЧА ВЛАДЕНИЯ:
 // - Если владелец выходит, а в комнате есть другие — владение первому участнику.
@@ -83,7 +84,7 @@ async function safeSendDM(user, content) {
 }
 
 /**
- * Создаёт ТОЛЬКО голосовую комнату. Панель управления — в ЛС.
+ * Создаёт голосовую комнату и публикует панель управления в её чате.
  * @param {GuildMember} member — пользователь, который зашёл в канал-триггер
  * @param {VoiceChannel} triggerChannel — канал-триггер
  */
@@ -95,15 +96,18 @@ export async function createVoiceRoom(member, triggerChannel) {
   const existingRoom = findRoomByOwner(member.id);
 
   if (existingRoom) {
-    // Если есть — просто перемещаем пользователя в его комнату
-    const existingVoice = guild.channels.cache.get(existingRoom.voice_channel_id);
+    let existingVoice = guild.channels.cache.get(existingRoom.voice_channel_id);
+    if (!existingVoice) {
+      existingVoice = await guild.channels.fetch(existingRoom.voice_channel_id).catch(() => null);
+    }
+
     if (existingVoice) {
       await member.voice.setChannel(existingVoice).catch(() => {});
-    } else {
-      // Канал удалён — удаляем запись из БД и создаём заново
-      db.prepare('DELETE FROM user_voice_channels WHERE id = ?').run(existingRoom.id);
+      return;
     }
-    return;
+
+    // Канал удалён — чистим БД и создаём комнату заново
+    db.prepare('DELETE FROM user_voice_channels WHERE id = ?').run(existingRoom.id);
   }
 
   try {
@@ -136,6 +140,21 @@ export async function createVoiceRoom(member, triggerChannel) {
       });
     }
 
+    const botMember = guild.members.me;
+    if (botMember) {
+      permissionOverwrites.push({
+        id: botMember.id,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.Connect,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.EmbedLinks,
+          PermissionFlagsBits.ReadMessageHistory,
+          PermissionFlagsBits.ManageChannels,
+        ],
+      });
+    }
+
     const voiceChannel = await guild.channels.create({
       name: `${member.displayName} | Приватно`,
       type: ChannelType.GuildVoice,
@@ -143,16 +162,25 @@ export async function createVoiceRoom(member, triggerChannel) {
       permissionOverwrites,
     });
 
-    // ─── Сохраняем в БД (только голосовой канал, без текстового) ─
+    // ─── Сохраняем в БД ────────────────────────────────────────
     db.prepare(`
       INSERT INTO user_voice_channels (owner_id, voice_channel_id)
       VALUES (?, ?)
     `).run(member.id, voiceChannel.id);
 
+    const room = db.prepare('SELECT * FROM user_voice_channels WHERE voice_channel_id = ?').get(voiceChannel.id);
+
     // ─── Перемещаем пользователя в новую комнату ─────────────────
     await member.voice.setChannel(voiceChannel).catch((err) => {
       console.error(`[VOICE] Не удалось переместить ${member.id}: ${err.message}`);
     });
+
+    // ─── Панель управления — в чат голосового канала ─────────────
+    if (room) {
+      await publishRoomPanel(guild, room, voiceChannel, { mentionOwner: true }).catch((err) => {
+        console.error(`[VOICE] Не удалось опубликовать панель для ${voiceChannel.id}: ${err.message}`);
+      });
+    }
 
     console.log(
       `[VOICE] Создана комната для ${member.displayName}: голосовой=${voiceChannel.id}`
@@ -171,7 +199,7 @@ export async function createVoiceRoom(member, triggerChannel) {
 // ЛОГИКА:
 // 1. Владелец выходит из голосового канала.
 // 2. Если в канале остались участники — первый в списке становится новым владельцем.
-// 3. Бот обновляет запись в БД и отправляет ЛС новому владельцу с панелью управления.
+// 3. Бот обновляет запись в БД и переотправляет панель в чат голосового канала.
 // 4. Если в канале никого не осталось — канал удаляется НЕМЕДЛЕННО.
 // ══════════════════════════════════════════════════════════════════
 
@@ -248,6 +276,13 @@ export async function handleOwnerLeave(voiceChannel, guild) {
     console.log(
       `[VOICE] Владение комнатой ${voiceChannel.id} передано от ${oldOwnerId} к ${newOwner.id}`
     );
+
+    const updatedRoom = db.prepare('SELECT * FROM user_voice_channels WHERE id = ?').get(room.id);
+    if (updatedRoom) {
+      await publishRoomPanel(guild, updatedRoom, voiceChannel, { mentionOwner: true }).catch((err) => {
+        console.error(`[VOICE] Не удалось обновить панель после передачи ${voiceChannel.id}: ${err.message}`);
+      });
+    }
   } catch (err) {
     console.error(`[VOICE] Ошибка передачи владения:`, err.message);
   }
@@ -269,6 +304,8 @@ export async function deleteVoiceRoomById(voiceChannelIdStr, guild) {
     .get(voiceChannelIdStr);
 
   if (!room) return;
+
+  await removeRoomPanelMessage(guild, voiceChannelIdStr).catch(() => {});
 
   try {
     // Удаляем голосовой канал

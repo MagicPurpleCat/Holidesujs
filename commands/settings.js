@@ -1,6 +1,7 @@
 // === МОДУЛЬ: SETTINGS (Приватность и настройки) ===
 import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
 import { getDb, ensureUser } from '../database.js';
+import { COLOR } from '../utils/ui.js';
 
 /**
  * Строит embed и компоненты для настроек.
@@ -19,32 +20,32 @@ export function buildSettingsMessage(userId, guildId = '') {
   }
 
   const embed = new EmbedBuilder()
-    .setColor(0x5865f2)
-    .setTitle('⚙️ Настройки профиля')
-    .setDescription('Управляй приватностью и уведомлениями:')
+    .setColor(COLOR.accent)
+    .setTitle('Настройки')
+    .setDescription('Приватность и уведомления. Кнопка переключает пункт.')
     .addFields(
       {
-        name: '💍 Брачные предложения',
-        value: settings.allow_marriage_requests ? '✅ Разрешены' : '❌ Запрещены',
+        name: 'Брачные предложения',
+        value: settings.allow_marriage_requests ? 'Разрешены' : 'Закрыты',
         inline: true,
       },
       {
-        name: '❤️ Показывать отношения',
-        value: settings.show_relationship ? '✅ Видно в профиле' : '❌ Скрыто',
+        name: 'Отношения в профиле',
+        value: settings.show_relationship ? 'Видны' : 'Скрыты',
         inline: true,
       },
       {
-        name: '📬 Уведомления в ЛС',
-        value: settings.allow_dm_notifications ? '✅ Включены' : '❌ Отключены',
+        name: 'ЛС от бота',
+        value: settings.allow_dm_notifications ? 'Вкл' : 'Выкл',
         inline: true,
       },
       {
-        name: '🔗 Упоминания в профиле',
-        value: settings.allow_profile_mentions ? '✅ Разрешены' : '❌ Запрещены',
+        name: 'Упоминания в профиле',
+        value: settings.allow_profile_mentions ? 'Разрешены' : 'Запрещены',
         inline: true,
       },
     )
-    .setFooter({ text: 'Нажми на кнопку, чтобы переключить настройку' })
+    .setFooter({ text: 'Holidesu · нажми кнопку, чтобы переключить' })
 
   const rows = [
     new ActionRowBuilder().addComponents(
@@ -75,7 +76,7 @@ export function buildSettingsMessage(userId, guildId = '') {
 export default {
   data: new SlashCommandBuilder()
     .setName('settings')
-    .setDescription('⚙️ Настройки профиля и приватности'),
+    .setDescription('Приватность профиля и уведомления'),
 
   async execute(interaction) {
     try {

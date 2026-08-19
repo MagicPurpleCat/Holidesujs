@@ -1,138 +1,81 @@
 import {
   SlashCommandBuilder,
-  EmbedBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
 } from 'discord.js';
 import { getUserLevel } from '../utils/permissions.js';
+import { brandEmbed, COLOR, guildFooter } from '../utils/ui.js';
 
-/**
- * Строит Embed помощи.
- * @param {number} userLevel — уровень прав пользователя (0 = обычный)
- * @param {string} guildName — название сервера
- */
-function buildHelpEmbed(userLevel, guildName) {
-  const embed = new EmbedBuilder()
-    .setColor(0x5865f2)
-    .setTitle(`📖 Помощь — ${guildName}`)
-    .setDescription(
-      'Добро пожаловать! Вот список доступных команд.\n' +
-      'Валюта сервера: **⚡HLD**\n' +
-      'Используй `/команда` для выполнения.'
-    )
-    .addFields(
-      {
-        name: '💰 Экономика',
-        value:
-          '`/баланс [пользователь]` — Показать баланс ⚡HLD\n' +
-          '`/pay <пользователь> <сумма>` — Перевести ⚡HLD\n' +
-          '`/profile [пользователь]` — Полный профиль\n' +
-          '`/rank [пользователь]` — Уровень и прогресс XP\n' +
-          '`/shop` — Магазин: роли, бусты, создание ролей\n' +
-          '`/топ` — Рейтинг топ-10 с выбором категории\n' +
-          '`/settings` — Приватность профиля',
-        inline: false,
-      },
-      {
-        name: '🎮 Игровые механики',
-        value:
-          '`/casino daily` — Ежедневный бонус\n' +
-          '`/casino slot <ставка>` — Слот-машина\n' +
-          '`/casino coinflip <ставка> <choice>` — Орёл/Решка (макс. 10000, без VIP на выплату)\n' +
-          '`/marry <пользователь>` — Предложение руки и сердца\n' +
-          '`/divorce` — Расторгнуть брак\n' +
-          '`/реп` / `/rep` — Повысить репутацию (кулдаун 1 ч, не себе)\n' +
-          '`/meme-gen` — Случайная фраза\n' +
-          '`/clan` — Кланы: create, invite, join, deposit, bank, info, leave, wars (ставка из банка)',
-        inline: false,
-      },
-      {
-        name: '🗣 Чат и голос',
-        value:
-          '🎤 **Комнаты:** зайди в канал создания, затем `/room-settings` — закрыть, скрыть, лимит, имя, кик, передать.\n' +
-          '📢 **Фарм ⚡HLD:** будь в голосовом канале с другими участниками (не в соло).\n' +
-          '💬 **Сообщения:** за каждое сообщение начисляется XP (раз в 5 секунд).',
-        inline: false,
-      },
-      {
-        name: '🔐 Безопасность',
-        value:
-          '`/verify setup` — Настроить верификацию (админ)\n' +
-          '`/verify check [пользователь]` — Проверить статус верификации',
-        inline: false,
-      },
-    )
-    .setFooter({ text: 'Наш Discord сервер' })
-
-  // ─── Админ-блок (только для level >= 1) ────────────────────
-  if (userLevel >= 1) {
-    let adminCommands = '';
-
-    adminCommands +=
-      '`/панель` — 🛠 **Единый центр администрирования**\n' +
-      'Все админ-функции собраны в одной панели с кнопками:\n';
-
-    if (userLevel >= 2) {
-      adminCommands +=
-        '└ 🔐 Права: выдать/снять права, снять верификацию, удалить пользователя\n' +
-        '└ 💰 Экономика: начислить/снять ⚡HLD, бесконечный баланс, XP\n';
-    }
-
-    adminCommands +=
-      '└ 🛡 Модерация: `/mod` warn, mute, unmute, kick, ban, unban, warns\n' +
-      '└ 📜 `/history` — история наказаний\n';
-
-    if (userLevel >= 2) {
-      adminCommands +=
-        '└ 🛠 Настройка сервера (мастер /setup)\n' +
-        '└ `/фичи` — включить/выключить модули бота\n';
-    }
-
-    adminCommands +=
-      '└ 📊 Статистика и топ активностей\n' +
-      '└ `/setup` — Мастер настройки сервера\n' +
-      '└ 📜 `/логи` — Настройка логирования сервера и ролей-фильтров';
-
-    embed.addFields({
-      name: '🛠 Админка',
-      value: adminCommands,
+function buildHelpEmbed(userLevel, guild) {
+  const embed = brandEmbed({
+    color: COLOR.accent,
+    title: `Holidesu · ${guild.name}`,
+    description:
+      'Валюта сервера — **⚡HLD**. Пиши `/` и начни имя команды.\n' +
+      'Баланс, уровень и брак считаются **отдельно на каждом сервере**.',
+    footer: guildFooter({ guild }, 'помощь'),
+    thumbnail: guild.iconURL({ size: 128 }),
+  }).addFields(
+    {
+      name: 'Экономика',
+      value:
+        '`/баланс` `/pay` `/work` `/квесты` `/сезон`\n' +
+        '`/cosmetics` `/shop` `/profile` `/rank` `/топ` `/settings`',
       inline: false,
-    });
+    },
+    {
+      name: 'Игры и люди',
+      value:
+        '`/casino` daily · slot · coinflip · blackjack\n' +
+        '`/marry` `/divorce` `/семья` `/реп` `/meme-gen`\n' +
+        '`/clan` create · shop · wars · bank',
+      inline: false,
+    },
+    {
+      name: 'Голос и чат',
+      value:
+        'Зайди в канал создания комнаты → `/room-settings`.\n' +
+        'Фарм ⚡HLD — в войсе **не в соло**. Сообщения дают XP раз в 5 сек.',
+      inline: false,
+    },
+    {
+      name: 'Поддержка',
+      value: '`/verify`  ·  `/ticket setup`  ·  `/ticket close`  ·  `/giveaway start`',
+      inline: false,
+    },
+  );
+
+  if (userLevel >= 1) {
+    const lines = [
+      '`/mod` warn · mute · unmute · kick · ban · unban · warns',
+      '`/history` `/логи` `/панель`',
+    ];
+    if (userLevel >= 2) {
+      lines.push('`/setup` мастер сервера  ·  `/фичи` модули бота');
+    }
+    embed.addFields({ name: 'Персонал', value: lines.join('\n'), inline: false });
   }
 
   return embed;
 }
 
-// ══════════════════════════════════════════════════════════════════
-// АЛИАС /HELP
-// ══════════════════════════════════════════════════════════════════
-// Команда /help делает то же самое, что /помощь.
+async function runHelp(interaction) {
+  const userLevel = getUserLevel(interaction.user.id, interaction.guild);
+  await interaction.reply({
+    embeds: [buildHelpEmbed(userLevel, interaction.guild)],
+  });
+}
 
 const helpAlias = {
   data: new SlashCommandBuilder()
     .setName('help')
-    .setDescription('📖 Показать список команд и описание бота'),
-
-  async execute(interaction) {
-    const userLevel = getUserLevel(interaction.user.id, interaction.guild);
-    const embed = buildHelpEmbed(userLevel, interaction.guild.name);
-
-    await interaction.reply({ embeds: [embed] });
-  },
+    .setDescription('Справочник команд Holidesu'),
+  execute: runHelp,
 };
 
 export default {
   data: new SlashCommandBuilder()
     .setName('помощь')
-    .setDescription('📖 Показать список команд и описание бота'),
-
-  async execute(interaction) {
-    const userLevel = getUserLevel(interaction.user.id, interaction.guild);
-    const embed = buildHelpEmbed(userLevel, interaction.guild.name);
-
-    await interaction.reply({ embeds: [embed] });
-  },
+    .setDescription('Справочник команд Holidesu'),
+  execute: runHelp,
 };
 
 export { helpAlias };

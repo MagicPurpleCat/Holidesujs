@@ -6,7 +6,7 @@ import { getUserLevel } from '../utils/permissions.js';
 export default {
   data: new SlashCommandBuilder()
     .setName('history')
-    .setDescription('📜 Показать историю наказаний пользователя')
+    .setDescription('История наказаний участника')
     .addUserOption((opt) =>
       opt.setName('пользователь')
         .setDescription('Пользователь для просмотра истории')

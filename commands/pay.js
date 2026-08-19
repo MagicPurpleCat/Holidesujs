@@ -1,12 +1,13 @@
-import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder } from 'discord.js';
 import { getUser, removeCoins, addCoins, runInTransaction } from '../database.js';
+import { brandEmbed, COLOR, fmtHld, guildFooter, replyFail } from '../utils/ui.js';
 
 export default {
   data: new SlashCommandBuilder()
     .setName('pay')
-    .setDescription('💸 Перевести ⚡HLD другому участнику')
+    .setDescription('Перевести ⚡HLD другому участнику')
     .addUserOption((opt) =>
-      opt.setName('пользователь').setDescription('Кому перевести').setRequired(true)
+      opt.setName('пользователь').setDescription('Кому отправить').setRequired(true)
     )
     .addIntegerOption((opt) =>
       opt.setName('сумма').setDescription('Сколько ⚡HLD').setRequired(true).setMinValue(1)
@@ -18,22 +19,13 @@ export default {
     const fromId = interaction.user.id;
     const guildId = interaction.guildId;
 
-    if (!target) {
-      return interaction.reply({ content: '❌ Укажи пользователя.', flags: MessageFlags.Ephemeral });
-    }
-    if (target.bot) {
-      return interaction.reply({ content: '❌ Нельзя переводить боту.', flags: MessageFlags.Ephemeral });
-    }
-    if (target.id === fromId) {
-      return interaction.reply({ content: '❌ Нельзя перевести деньги самому себе.', flags: MessageFlags.Ephemeral });
-    }
+    if (!target) return replyFail(interaction, 'Укажи пользователя.');
+    if (target.bot) return replyFail(interaction, 'Ботам ⚡HLD не нужны.');
+    if (target.id === fromId) return replyFail(interaction, 'Себе переводить нельзя.');
 
     const sender = getUser(fromId, guildId);
     if (sender.balance < amount) {
-      return interaction.reply({
-        content: `❌ Недостаточно ⚡HLD. У тебя: **${sender.balance} ⚡HLD**.`,
-        flags: MessageFlags.Ephemeral,
-      });
+      return replyFail(interaction, `Не хватает. У тебя ${fmtHld(sender.balance)}.`);
     }
 
     try {
@@ -45,20 +37,19 @@ export default {
       });
     } catch (err) {
       if (err.message === 'NO_FUNDS') {
-        return interaction.reply({
-          content: '❌ Недостаточно ⚡HLD.',
-          flags: MessageFlags.Ephemeral,
-        });
+        return replyFail(interaction, 'Не хватает ⚡HLD.');
       }
       throw err;
     }
 
     const updated = getUser(fromId, guildId);
-    const embed = new EmbedBuilder()
-      .setColor(0x2ecc71)
-      .setTitle('💸 Перевод')
-      .setDescription(`<@${fromId}> отправил **${amount} ⚡HLD** пользователю <@${target.id}>.`)
-      .addFields({ name: '💳 Твой баланс', value: `**${updated.balance} ⚡HLD**`, inline: true });
+    const embed = brandEmbed({
+      color: COLOR.success,
+      title: 'Перевод',
+      description: `<@${fromId}> → <@${target.id}>\n${fmtHld(amount)}`,
+      thumbnail: target.displayAvatarURL({ size: 128 }),
+      footer: guildFooter(interaction, 'pay'),
+    }).addFields({ name: 'Твой баланс', value: fmtHld(updated.balance), inline: true });
 
     await interaction.reply({ embeds: [embed] });
   },

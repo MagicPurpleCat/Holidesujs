@@ -6,6 +6,7 @@ import {
   StringSelectMenuOptionBuilder,
 } from 'discord.js';
 import { getDb } from '../database.js';
+import { COLOR, guildFooter } from '../utils/ui.js';
 
 // ══════════════════════════════════════════════════════════════════
 // КОМАНДА /ТОП — СИСТЕМА РЕЙТИНГА
@@ -182,13 +183,13 @@ function buildTopEmbed(interaction, category) {
   }).reduce((acc, line, i) => i === 0 ? [line] : [...acc, '', line], []);
 
   return new EmbedBuilder()
-    .setColor(0xf1c40f)
-    .setTitle(`🏆 Топ: ${cat.emoji} ${cat.label}`)
+    .setColor(COLOR.gold)
+    .setTitle(`${cat.emoji}  ${cat.label}`)
     .setDescription(cat.description)
     .addFields(
-      { name: `📊 Топ-${TOP_LIMIT}`, value: lines.length ? lines.join('\n') : 'Пока нет данных.', inline: false }
+      { name: `Топ-${TOP_LIMIT}`, value: lines.length ? lines.join('\n') : 'Пока пусто.', inline: false }
     )
-    .setFooter({ text: 'Выбери категорию в меню ниже' });
+    .setFooter({ text: guildFooter(interaction, 'меню ниже меняет категорию') });
 }
 
 /**
@@ -234,7 +235,7 @@ export async function handleTopSelect(interaction) {
 export default {
   data: new SlashCommandBuilder()
     .setName('топ')
-    .setDescription('🏆 Показать топ-10 пользователей с выбором категории')
+    .setDescription('Топ-10: общий рейтинг, XP, ⚡HLD, сообщения, реп')
     .addStringOption((opt) =>
       opt
         .setName('категория')

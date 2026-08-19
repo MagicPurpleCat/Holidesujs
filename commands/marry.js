@@ -2,11 +2,12 @@
 import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
 import { getDb, ensureUser } from '../database.js';
 import { divorceUser } from '../modules/relationships.js';
+import { COLOR } from '../utils/ui.js';
 
 export default {
   data: new SlashCommandBuilder()
     .setName('marry')
-    .setDescription('💍 Сделать предложение руки и сердца')
+    .setDescription('Предложение руки и сердца')
     .addUserOption((opt) =>
       opt.setName('пользователь')
         .setDescription('Кому ты хочешь предложить')
@@ -67,14 +68,14 @@ export default {
 
       // Создаём Embed с предложением
       const embed = new EmbedBuilder()
-        .setColor(0xff69b4)
-        .setTitle('💍 Предложение руки и сердца!')
+        .setColor(COLOR.pink)
+        .setTitle('Предложение')
         .setDescription(
-          `**${interaction.user.displayName}** делает предложение **${target.displayName}**!\n\n` +
-          `💞 Согласен ли ты соединить свои узы в священном браке?`
+          `**${interaction.user.displayName}** предлагает руку **${target.displayName}**.\n` +
+          '60 секунд, чтобы ответить.'
         )
-        .setThumbnail('https://cdn.discordapp.com/emojis/1006200929368096889.png')
-        .setFooter({ text: 'У тебя есть 60 секунд, чтобы ответить' })
+        .setThumbnail(interaction.user.displayAvatarURL({ size: 128 }))
+        .setFooter({ text: 'Holidesu · marry' });
 
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
@@ -116,7 +117,7 @@ export default {
 export const divorceAlias = {
   data: new SlashCommandBuilder()
     .setName('divorce')
-    .setDescription('💔 Расторгнуть брак'),
+    .setDescription('Расторгнуть брак и разделить семейный счёт'),
 
   async execute(interaction) {
     const result = divorceUser(interaction.user.id, interaction.guildId);
