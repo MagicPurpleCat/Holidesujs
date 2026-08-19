@@ -23,14 +23,24 @@ function stripMarkdown(line) {
     .trim();
 }
 
-function extractBullets(sectionText, limit = 12) {
+function extractBullets(sectionText, limit = 15) {
   if (!sectionText) return [];
-  const lines = sectionText
-    .split('\\n')
-    .map((l) => l.trim())
-    .filter((l) => l.startsWith('- '));
+  let skipDevSection = false;
+  const bullets = [];
 
-  return lines.slice(0, limit).map(stripMarkdown);
+  for (const raw of sectionText.split('\n')) {
+    const line = raw.trim();
+    if (line.startsWith('### Для разработчиков')) {
+      skipDevSection = true;
+      continue;
+    }
+    if (skipDevSection) continue;
+    if (line.startsWith('- ')) {
+      bullets.push(stripMarkdown(line.slice(2)));
+    }
+  }
+
+  return bullets.slice(0, limit);
 }
 
 async function sendToDiscord(webhookUrl, payload) {
@@ -63,7 +73,7 @@ async function main() {
   const bullets = extractBullets(section || text, 12);
 
   const description = bullets.length
-    ? bullets.join('\\n')
+    ? bullets.map((b) => `• ${b}`).join('\n')
     : 'Нет пунктов в секции changelog.';
 
   const payload = {
