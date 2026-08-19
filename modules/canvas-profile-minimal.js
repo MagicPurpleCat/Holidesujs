@@ -399,18 +399,41 @@ export async function generateProfileImage(data) {
 
   const aboutY = 526;
   const aboutH = 168;
+  const statusText = data.statusText ? String(data.statusText).trim() : '';
+  const hasStatus = Boolean(statusText);
   fillRound(ctx, rx, aboutY, rw, aboutH, 22, C.glass2);
   strokeRound(ctx, rx, aboutY, rw, aboutH, 22, C.line);
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
   ctx.fillStyle = C.faint;
   ctx.font = font(15, true);
-  ctx.fillText('О СЕБЕ', rx + 24, aboutY + 18);
+  if (hasStatus) {
+    // Pill со статусом чуть выше, чтобы поместить вместе с блоком "О себе"
+    drawPill(
+      ctx,
+      trunc(ctx, statusText, rw - 48),
+      rx + 24,
+      aboutY + 12,
+      'rgba(255,87,51,0.16)',
+      accent,
+    );
+  }
+
+  const aboutTitleY = hasStatus ? aboutY + 66 : aboutY + 18;
+  const aboutTextStartY = hasStatus ? aboutY + 94 : aboutY + 52;
+
+  ctx.fillText('О СЕБЕ', rx + 24, aboutTitleY);
   ctx.fillStyle = data.about ? C.white : C.muted;
   ctx.font = font(22);
-  const aboutLines = wrapText(ctx, data.about || 'Пока ничего не указано. Можно заполнить в настройках профиля.', rw - 48);
-  aboutLines.slice(0, 3).forEach((line, i) => {
-    ctx.fillText(line, rx + 24, aboutY + 52 + i * 32);
+
+  const aboutLines = wrapText(
+    ctx,
+    data.about || 'Пока ничего не указано. Можно заполнить в настройках профиля.',
+    rw - 48,
+  );
+  const maxLines = hasStatus ? 2 : 3;
+  aboutLines.slice(0, maxLines).forEach((line, i) => {
+    ctx.fillText(line, rx + 24, aboutTextStartY + i * 32);
   });
 
   const badges = Array.isArray(data.badges) ? data.badges : [];

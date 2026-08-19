@@ -50,6 +50,7 @@ import { handleTicketButton, handleTicketClose } from '../commands/ticket.js';
 import { handleGiveawayButton } from '../commands/giveaway.js';
 import { handleWelcomeReadyButton, handleWelcomeRoleModal } from '../modules/welcomeNPC.js';
 import { handleVoicePanelButtons } from '../modules/voicePanel.js';
+import { reportInteractionError, safeInteractionFallback } from '../utils/errorHandling.js';
 
 export function createInteractionHandler(shardId, client) {
   return async function handleInteraction(interaction) {
@@ -338,22 +339,16 @@ export function createInteractionHandler(shardId, client) {
         }
       }
     } catch (error) {
-      logErr(shardId, 'INTERACTION',
-        `Ошибка при обработке ${interaction.customId || interaction.commandName}: ${error.message}`);
-
-      const reply = {
-        content: '❌ Произошла ошибка при обработке взаимодействия.',
-        flags: MessageFlags.Ephemeral,
-      };
-      try {
-        if (interaction.replied || interaction.deferred) {
-          await interaction.followUp(reply).catch(() => {});
-        } else {
-          await interaction.reply(reply).catch(() => {});
-        }
-      } catch {
-        /* ignore */
-      }
+      await reportInteractionError({
+        interaction,
+        shardId,
+        context: 'dispatcher_interactions.js',
+        error,
+      });
+      await safeInteractionFallback(interaction, {
+        text: 'Сервис временно недоступен, попробуйте позже.',
+        ephemeral: true,
+      });
     }
   };
 }

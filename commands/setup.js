@@ -444,6 +444,52 @@ async function stepFinalize(interaction, wizard) {
     }
 
     const adminRolesJson = JSON.stringify(wizard.selectedRoles);
+
+    // ─── Статистические voice-каналы (только через /setup) ──────────────────
+    let statsMembersVoiceId = prevChannels.stats_members_voice || null;
+    let statsBotsVoiceId = prevChannels.stats_bots_voice || null;
+
+    const guild = interaction.guild;
+    const botId = interaction.client?.user?.id;
+    const voiceStatsCategoryId = wizard.channels.voice_category || prevChannels.voice_category || null;
+
+    const ensureStatsChannel = async (existingId, name) => {
+      if (!voiceStatsCategoryId || !guild || !botId) return null;
+
+      // Если канал уже есть и существует — возвращаем
+      if (existingId) {
+        const found = guild.channels.cache.get(existingId)
+          || await guild.channels.fetch(existingId).catch(() => null);
+        if (found) return existingId;
+      }
+
+      // Иначе создаём
+      const permissionOverwrites = [
+        {
+          id: guild.id,
+          deny: [PermissionFlagsBits.Connect],
+          allow: [PermissionFlagsBits.ViewChannel],
+        },
+        {
+          id: botId,
+          deny: [PermissionFlagsBits.Connect],
+          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ManageChannels],
+        },
+      ];
+
+      const ch = await guild.channels.create({
+        name,
+        type: ChannelType.GuildVoice,
+        parent: voiceStatsCategoryId,
+        permissionOverwrites,
+      });
+
+      return ch?.id || null;
+    };
+
+    statsMembersVoiceId = await ensureStatsChannel(statsMembersVoiceId, 'Люди: 0');
+    statsBotsVoiceId = await ensureStatsChannel(statsBotsVoiceId, 'Боты: 0');
+
     const channelsJson = JSON.stringify({
       ...prevChannels,
       log: wizard.channels.log,
@@ -453,6 +499,8 @@ async function stepFinalize(interaction, wizard) {
       trigger: wizard.channels.trigger || prevChannels.trigger || null,
       voice_category: wizard.channels.voice_category || prevChannels.voice_category || null,
       welcome: wizard.channels.welcome || prevChannels.welcome || null,
+      stats_members_voice: statsMembersVoiceId || prevChannels.stats_members_voice || null,
+      stats_bots_voice: statsBotsVoiceId || prevChannels.stats_bots_voice || null,
     });
 
     // UPSERT: если запись для guild_id уже есть — обновляем, иначе вставляем

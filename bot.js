@@ -14,6 +14,8 @@ import { startDbBackupLoop } from './modules/dbBackup.js';
 import { initVoicePanel, startPanelAutoUpdate } from './modules/voicePanel.js';
 import { startGiveawayLoop } from './commands/giveaway.js';
 import { startSeasonLoop } from './modules/seasons.js';
+import { startServerStatsDailyLoop } from './modules/serverStatsDaily.js';
+import { initServerVoiceStats } from './modules/serverVoiceStats.js';
 import { allCommands } from './commands/index.js';
 
 initDatabase();
@@ -83,6 +85,8 @@ shardManager.start(
 
       startGiveawayLoop(client);
       startSeasonLoop(client);
+      startServerStatsDailyLoop(client);
+      initServerVoiceStats(client);
 
       logInfo(shardId, 'MAIN', `Полностью готов. Серверов: ${client.guilds.cache.size}.`);
     } catch (err) {

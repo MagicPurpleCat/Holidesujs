@@ -7,6 +7,7 @@ import {
 } from 'discord.js';
 import { getDb } from '../database.js';
 import { COLOR, guildFooter } from '../utils/ui.js';
+import { OVERALL_MAX, overallScore } from '../modules/score.js';
 
 // ══════════════════════════════════════════════════════════════════
 // КОМАНДА /ТОП — СИСТЕМА РЕЙТИНГА
@@ -14,8 +15,8 @@ import { COLOR, guildFooter } from '../utils/ui.js';
 //
 // Показывает ТОП-10 пользователей в выбранной категории.
 //
-// Общий рейтинг считается по формуле:
-//   Опыт × 0.1  +  Валюта × 0.1  +  Сообщения × 0.5  +  Репутация × 10
+// Общий рейтинг считается по формуле (см. modules/score.js):
+//   Опыт × 0.1 + Валюта × 0.1 + Сообщения × 0.5 + Войс × 0.05 + Репутация × 10
 // ПРЕДЕЛ (CAP): максимальное значение общего рейтинга — 1 000 000.
 //
 // Категории (переключаются select-меню):
@@ -32,19 +33,8 @@ import { COLOR, guildFooter } from '../utils/ui.js';
 // Никаких технических имён полей БД не выводится.
 // ══════════════════════════════════════════════════════════════════
 
-// ─── Предел общего рейтинга ──────────────────────────────────────
-const OVERALL_MAX = 1_000_000;
-
 // ─── Количество участников в топе ───────────────────────────────
 const TOP_LIMIT = 10;
-
-// ─── Веса для общего рейтинга ─────────────────────────────────────
-const WEIGHTS = {
-  xp: 0.1,          // опыт: 1 = 0.1
-  balance: 0.1,      // валюта: 1 = 0.1
-  messages: 0.5,     // сообщения: 1 = 0.5
-  reputation: 10,    // репутация: 1 = 10
-};
 
 // ─── Категории рейтинга ───────────────────────────────────────────
 const CATEGORIES = {
@@ -75,20 +65,7 @@ const CATEGORIES = {
   },
 };
 
-/**
- * Считает баллы общего рейтинга для пользователя.
- * @param {Object} u — строка из таблицы users
- * @returns {number}
- */
-export function overallScore(u) {
-  const raw =
-    (u.total_xp || 0) * WEIGHTS.xp +
-    (u.balance || 0) * WEIGHTS.balance +
-    (u.total_messages || 0) * WEIGHTS.messages +
-    (u.total_reactions_received || 0) * WEIGHTS.reputation;
-  // Предел: общий рейтинг не может превышать 1 000 000
-  return Math.min(OVERALL_MAX, raw);
-}
+// overallScore вынесен в modules/score.js
 
 /**
  * Возвращает числовое значение категории для сортировки.
@@ -163,7 +140,7 @@ function buildTopEmbed(interaction, category) {
 
   // Берём всех пользователей без бесконечного баланса
   const users = db.prepare(`
-    SELECT user_id, balance, total_xp, total_messages, total_reactions_received
+    SELECT user_id, balance, total_xp, total_messages, total_voice_minutes, total_reactions_received
     FROM users
     WHERE is_infinite_balance = 0 AND guild_id = ?
   `).all(interaction.guildId);

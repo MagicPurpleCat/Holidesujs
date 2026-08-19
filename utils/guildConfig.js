@@ -157,6 +157,8 @@ export function getGuildConfig(guildId) {
     adminRoles: Array.isArray(adminRoles) ? adminRoles : [],
     triggerChannelId: (channels.trigger || '').trim() || (FALLBACK_TRIGGER_CHANNEL_ID || '').trim(),
     voiceCategoryId: (channels.voice_category || '').trim() || (FALLBACK_VOICE_CATEGORY_ID || '').trim(),
+    statsMembersVoiceChannelId: channels.stats_members_voice || '',
+    statsBotsVoiceChannelId: channels.stats_bots_voice || '',
     voicePanelChannelId: channels.voice_panel || '',
     welcomeChannelId: channels.welcome || channels.cmd || '',
     cmdChannelId: channels.cmd || '',

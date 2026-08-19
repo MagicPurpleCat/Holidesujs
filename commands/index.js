@@ -27,6 +27,7 @@ import ticketCmd from './ticket.js';
 import giveawayCmd from './giveaway.js';
 import cosmeticsCmd, { cosmeticsAlias } from './cosmetics.js';
 import seasonCmd from './season.js';
+import serverStatsCmd from './server-stats.js';
 
 export const allCommands = [
   balanceCmd, shopCmd, profileCmd, casinoCmd, clanCmd,
@@ -36,5 +37,5 @@ export const allCommands = [
   memeGenCmd, setupCmd, roomSettingsCmd, logsCmd,
   moderationCmd, repCmd, repAlias, payCmd, featuresCmd,
   questsCmd, workCmd, familyCmd, ticketCmd, giveawayCmd,
-  cosmeticsCmd, cosmeticsAlias, seasonCmd,
+  cosmeticsCmd, cosmeticsAlias, seasonCmd, serverStatsCmd,
 ];

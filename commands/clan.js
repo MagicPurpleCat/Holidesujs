@@ -133,7 +133,7 @@ export default {
 
   async execute(interaction) {
     try {
-      const sub = interaction.options.getSubcommand();
+    const sub = interaction.options.getSubcommand();
       const db = getDb();
       ensureUser(interaction.user.id, interaction.guildId);
 
@@ -178,18 +178,18 @@ async function handleCreate(interaction, db) {
   }
 
   if (findClanByTag(db, tag, guildId)) {
-    return interaction.reply({
+      return interaction.reply({
       content: '❌ Клан с таким тегом уже существует на этом сервере.',
-      flags: MessageFlags.Ephemeral,
-    });
-  }
+        flags: MessageFlags.Ephemeral,
+      });
+    }
 
   if (db.prepare('SELECT 1 FROM clans WHERE name = ? COLLATE NOCASE AND guild_id = ?').get(name, guildId)) {
-    return interaction.reply({
+      return interaction.reply({
       content: '❌ Клан с таким названием уже существует на этом сервере.',
-      flags: MessageFlags.Ephemeral,
-    });
-  }
+        flags: MessageFlags.Ephemeral,
+      });
+    }
 
   try {
     runInTransaction(() => {

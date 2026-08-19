@@ -516,6 +516,21 @@ export function initDatabase() {
       claimed INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (guild_id, user_id, day_key)
     );
+
+    -- Ежедневные снапшоты для серверных графиков роста
+    CREATE TABLE IF NOT EXISTS server_stats_daily (
+      guild_id TEXT NOT NULL DEFAULT '',
+      day_key TEXT NOT NULL,
+      avg_overall_score REAL NOT NULL DEFAULT 0.0,
+      avg_balance REAL NOT NULL DEFAULT 0.0,
+      avg_xp REAL NOT NULL DEFAULT 0.0,
+      avg_messages REAL NOT NULL DEFAULT 0.0,
+      avg_voice_minutes REAL NOT NULL DEFAULT 0.0,
+      avg_reputation REAL NOT NULL DEFAULT 0.0,
+      member_count INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (guild_id, day_key)
+    );
+
     CREATE TABLE IF NOT EXISTS daily_streaks (
       guild_id TEXT NOT NULL DEFAULT '',
       user_id TEXT NOT NULL,

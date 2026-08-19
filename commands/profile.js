@@ -18,7 +18,7 @@ import {
 } from 'discord.js';
 import { getDb, getUser, ensureUser } from '../database.js';
 import { generateProfileImage } from '../modules/canvas-profile-minimal.js';
-import { overallScore } from './top.js';
+import { overallScore } from '../modules/score.js';
 import { listAchievements, ACHIEVEMENTS, COSMETICS, getMemberClanRow } from '../modules/progress.js';
 
 // ============================================================================
@@ -46,6 +46,7 @@ function buildProfileEmbed(data) {
       { name: '⚡ Баланс', value: `**${(data.balance || 0).toLocaleString()} ⚡HLD**`, inline: true },
       { name: '🎚 Уровень', value: `**${data.level || 1}**`, inline: true },
       { name: '🏆 Место', value: data.rank ? `**${data.rank}**` : '—', inline: true },
+      { name: '🟠 Статус', value: data.statusText ? `**${data.statusText}**` : '—', inline: false },
       { name: '📈 Прогресс XP', value: `${progress} **${data.xpPercent || 0}%**`, inline: false },
       { name: '🎤 Минут в голосовых', value: `**${(data.voiceMinutes || 0).toLocaleString()}**`, inline: true },
       { name: '📊 Сообщений', value: `**${(data.messages || 0).toLocaleString()}**`, inline: true },
@@ -111,7 +112,7 @@ function collectProfileData(target, member, db, guildId) {
   let rank = null;
   try {
     const users = db.prepare(`
-      SELECT user_id, balance, total_xp, total_messages, total_reactions_received
+      SELECT user_id, balance, total_xp, total_messages, total_voice_minutes, total_reactions_received
       FROM users WHERE is_infinite_balance = 0 AND guild_id = ?
     `).all(guildId);
     const scores = users.map((u) => ({ id: u.user_id, score: overallScore(u) }));
@@ -142,6 +143,7 @@ function collectProfileData(target, member, db, guildId) {
     voiceMinutes: activity?.voice_minutes_total || user.total_voice_minutes || 0,
     messages: activity?.messages_count || user.total_messages || 0,
     reputation: user.total_reactions_received || 0,
+    statusText: user.status_text || '',
     marriageWith,
     favoritePerson: marriageWith, // Используем партнера как "любимого человека"
     joinDate: user.joined_at
