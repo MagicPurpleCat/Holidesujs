@@ -111,7 +111,6 @@ export function registerGuildEvents(client, shardId) {
             member,
             xpResult.oldLevel,
             xpResult.newLevel,
-            message.channel,
           ).catch((e) => logErr(shardId, 'LEVEL', e.message));
         }
       }
@@ -134,6 +133,7 @@ export function registerGuildEvents(client, shardId) {
       getDb().prepare(
         'UPDATE users SET total_reactions_received = MAX(0, COALESCE(total_reactions_received, 0) + ?) WHERE guild_id = ? AND user_id = ?',
       ).run(delta, message.guild.id, message.author.id);
+      if (delta > 0) checkEconomyAchievements(message.author.id, message.guild.id);
     } catch (err) {
       logErr(shardId, 'REPUTATION', err.message);
     }
@@ -525,6 +525,34 @@ function registerAuditAndLogEvents(client, shardId) {
 
 let farmLoopStarted = false;
 
+/** После рестарта подхватывает тех, кто уже сидит в войсе. */
+export async function restoreVoiceFarmSessions(client) {
+  if (!client?.guilds?.cache) return 0;
+  let restored = 0;
+
+  for (const guild of client.guilds.cache.values()) {
+    const features = getGuildConfig(guild.id)?.features || {};
+    if (!features.voiceFarming) continue;
+
+    if (!voiceFarming.has(guild.id)) voiceFarming.set(guild.id, new Map());
+    const farmers = voiceFarming.get(guild.id);
+
+    await guild.voiceStates.fetch().catch(() => null);
+    for (const [, vs] of guild.voiceStates.cache) {
+      if (!vs.channelId || !vs.member) continue;
+      if (!isEligibleForFarm(vs.member)) continue;
+      farmers.set(vs.member.id, {
+        member: vs.member,
+        channelId: vs.channelId,
+        startedAt: Date.now(),
+      });
+      restored += 1;
+    }
+  }
+
+  return restored;
+}
+
 export function startVoiceFarmLoop() {
   if (farmLoopStarted) return;
   farmLoopStarted = true;
@@ -568,7 +596,6 @@ export function startVoiceFarmLoop() {
                 member,
                 xpResult.oldLevel,
                 xpResult.newLevel,
-                member.voice?.channel ?? null,
               ).catch((e) => logErr(null, 'LEVEL', e.message));
             }
           } catch (err) {

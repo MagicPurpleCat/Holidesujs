@@ -1,4 +1,14 @@
 import { getDb, gid, ensureUser, addCoins, getUser } from '../database.js';
+import { overallScore } from './score.js';
+import {
+  ACHIEVEMENTS,
+  ACHIEVEMENT_TIERS,
+  ACHIEVEMENT_TOTAL,
+  ACHIEVEMENT_CATEGORIES,
+  listAchievementKeys,
+} from './achievementsCatalog.js';
+
+export { ACHIEVEMENTS, ACHIEVEMENT_TOTAL, ACHIEVEMENT_CATEGORIES, listAchievementKeys };
 
 export const QUEST_GOALS = Object.freeze({
   messages: 15,
@@ -7,16 +17,6 @@ export const QUEST_GOALS = Object.freeze({
 });
 export const QUEST_BASE_REWARD = 150;
 export const QUEST_STREAK_BONUS = 20;
-
-export const ACHIEVEMENTS = Object.freeze({
-  first_marriage: { name: 'Первый брак', emoji: '💍' },
-  rich_10k: { name: '10 000 ⚡HLD', emoji: '💰' },
-  level_100: { name: '100 уровень', emoji: '🏆' },
-  clan_war_win: { name: 'Победа в войне', emoji: '⚔️' },
-  voice_hour: { name: 'Час в войсе', emoji: '🎤' },
-  casino_win: { name: 'Выигрыш в казино', emoji: '🎰' },
-  streak_7: { name: 'Стрик 7 дней', emoji: '🔥' },
-});
 
 export function utcDayKey(date = new Date()) {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
@@ -102,7 +102,8 @@ export function claimDailyQuest(userId, guildId) {
     ON CONFLICT(guild_id, user_id) DO UPDATE SET streak = excluded.streak, last_claim_day = excluded.last_claim_day
   `).run(g, userId, streak, day);
   addCoins(userId, reward, g);
-  if (streak >= 7) unlockAchievement(userId, guildId, 'streak_7');
+  unlockAchievement(userId, guildId, 'quest_first');
+  checkEconomyAchievements(userId, guildId);
   return { ok: true, reward, streak };
 }
 
@@ -189,11 +190,59 @@ export function listAchievements(userId, guildId) {
   ).all(gid(guildId), userId);
 }
 
+function unlockMetricTiers(userId, guildId, category, value) {
+  const tiers = ACHIEVEMENT_TIERS[category];
+  if (!tiers?.length) return;
+  for (const tier of tiers) {
+    if (value >= tier.threshold) unlockAchievement(userId, guildId, tier.key);
+    else break;
+  }
+}
+
+function getQuestClaimsCount(userId, guildId) {
+  const row = getDb().prepare(
+    'SELECT COUNT(*) AS cnt FROM daily_quests WHERE guild_id = ? AND user_id = ? AND claimed = 1',
+  ).get(gid(guildId), userId);
+  return row?.cnt || 0;
+}
+
+function getStreak(userId, guildId) {
+  const row = getDb().prepare(
+    'SELECT streak FROM daily_streaks WHERE guild_id = ? AND user_id = ?',
+  ).get(gid(guildId), userId);
+  return row?.streak || 0;
+}
+
 export function checkEconomyAchievements(userId, guildId) {
   const user = getUser(userId, guildId);
+
+  unlockMetricTiers(userId, guildId, 'messages', user.total_messages || 0);
+  unlockMetricTiers(userId, guildId, 'voice', user.total_voice_minutes || 0);
+  unlockMetricTiers(userId, guildId, 'balance', user.balance || 0);
+  unlockMetricTiers(userId, guildId, 'xp', user.total_xp || 0);
+  unlockMetricTiers(userId, guildId, 'level', user.level || 1);
+  unlockMetricTiers(userId, guildId, 'reputation', user.total_reactions_received || 0);
+  unlockMetricTiers(userId, guildId, 'streak', getStreak(userId, guildId));
+  unlockMetricTiers(userId, guildId, 'quests', getQuestClaimsCount(userId, guildId));
+  unlockMetricTiers(userId, guildId, 'overall', overallScore(user));
+
+  // Особые достижения (обратная совместимость)
   if ((user.balance || 0) >= 10_000) unlockAchievement(userId, guildId, 'rich_10k');
+  if ((user.balance || 0) >= 100_000) unlockAchievement(userId, guildId, 'rich_100k');
+  if ((user.level || 1) >= 25) unlockAchievement(userId, guildId, 'level_25');
+  if ((user.level || 1) >= 50) unlockAchievement(userId, guildId, 'level_50');
   if ((user.level || 1) >= 100) unlockAchievement(userId, guildId, 'level_100');
   if ((user.total_voice_minutes || 0) >= 60) unlockAchievement(userId, guildId, 'voice_hour');
+  if ((user.total_voice_minutes || 0) >= 600) unlockAchievement(userId, guildId, 'voice_10h');
+  if ((user.total_voice_minutes || 0) >= 1440) unlockAchievement(userId, guildId, 'voice_day');
+  if ((user.total_messages || 0) >= 1000) unlockAchievement(userId, guildId, 'messages_1k');
+  if ((user.total_messages || 0) >= 10_000) unlockAchievement(userId, guildId, 'messages_10k');
+  if ((user.total_reactions_received || 0) >= 50) unlockAchievement(userId, guildId, 'reputation_50');
+  if ((user.total_reactions_received || 0) >= 100) unlockAchievement(userId, guildId, 'reputation_100');
+
+  const streak = getStreak(userId, guildId);
+  if (streak >= 7) unlockAchievement(userId, guildId, 'streak_7');
+  if (streak >= 30) unlockAchievement(userId, guildId, 'streak_30');
 }
 
 export const COSMETICS = Object.freeze({

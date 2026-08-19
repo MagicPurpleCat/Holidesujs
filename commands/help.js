@@ -18,6 +18,7 @@ function buildHelpEmbed(userLevel, guild) {
       name: 'Экономика',
       value:
         '`/баланс` `/pay` `/work` `/квесты` `/сезон`\n' +
+        '`/достижения`\n' +
         '`/cosmetics` `/shop` `/profile` `/rank` `/топ` `/settings`',
       inline: false,
     },
@@ -49,7 +50,7 @@ function buildHelpEmbed(userLevel, guild) {
       '`/history` `/логи` `/панель`',
     ];
     if (userLevel >= 2) {
-      lines.push('`/setup` мастер сервера  ·  `/фичи` модули бота');
+      lines.push('`/setup` мастер сервера  ·  `/фичи` модули бота  ·  `/welcome-preview`  ·  `/self-roles setup`');
     }
     embed.addFields({ name: 'Персонал', value: lines.join('\n'), inline: false });
   }

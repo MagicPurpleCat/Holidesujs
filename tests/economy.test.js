@@ -184,8 +184,50 @@ test('семейный банк делится пополам', async () => {
   assert.equal(getUser('b-fam', g).balance, beforeB + 50);
 });
 
+test('брак записывается по серверу и развод делит семейный банк', async () => {
+  const { storeProposal, getActiveProposal, clearProposal, divorceUser, getMarriageRecord } = await import('../modules/relationships.js');
+  const { getOrCreateFamilyBank } = await import('../modules/progress.js');
+  const g = 'g-marry';
+  const a = 'u-m-a';
+  const b = 'u-m-b';
+  ensureUser(a, g);
+  ensureUser(b, g);
+
+  storeProposal(g, a, b, { messageId: '1' });
+  assert.ok(getActiveProposal(g, a, b));
+  clearProposal(g, a, b);
+  assert.equal(getActiveProposal(g, a, b), null);
+
+  getDb().prepare(`
+    UPDATE users SET relationship_status = 'married', relationship_partner_id = ?
+    WHERE guild_id = ? AND user_id = ?
+  `).run(b, g, a);
+  getDb().prepare(`
+    UPDATE users SET relationship_status = 'married', relationship_partner_id = ?
+    WHERE guild_id = ? AND user_id = ?
+  `).run(a, g, b);
+  getDb().prepare(`
+    INSERT INTO relationships (guild_id, user1_id, user2_id, status) VALUES (?, ?, ?, 'married')
+  `).run(g, a, b);
+
+  getOrCreateFamilyBank(g, a, b);
+  getDb().prepare('UPDATE family_bank SET balance = 200 WHERE guild_id = ?').run(g);
+
+  const result = divorceUser(a, g);
+  assert.equal(result.success, true);
+  assert.equal(result.split.each, 100);
+  assert.equal(getUser(a, g).relationship_status, 'divorced');
+  assert.equal(getUser(b, g).relationship_status, 'divorced');
+  assert.equal(getMarriageRecord(g, a), undefined);
+});
+
+test('каталог содержит ровно 1000 достижений', async () => {
+  const { ACHIEVEMENT_TOTAL } = await import('../modules/progress.js');
+  assert.equal(ACHIEVEMENT_TOTAL, 1000);
+});
+
 test('достижения и косметика пишутся один раз', async () => {
-  const { unlockAchievement, grantCosmetic, ownsCosmetic, listAchievements } = await import('../modules/progress.js');
+  const { unlockAchievement, grantCosmetic, ownsCosmetic, listAchievements, checkEconomyAchievements } = await import('../modules/progress.js');
   const g = 'g-ach';
   const u = 'u-ach';
   ensureUser(u, g);
@@ -195,6 +237,37 @@ test('достижения и косметика пишутся один раз'
   grantCosmetic(u, g, 'frame_gold');
   grantCosmetic(u, g, 'frame_gold');
   assert.equal(ownsCosmetic(u, g, 'frame_gold'), true);
+
+  getDb().prepare('UPDATE users SET total_messages = ?, total_reactions_received = ?, level = ? WHERE guild_id = ? AND user_id = ?')
+    .run(1000, 50, 25, g, u);
+  checkEconomyAchievements(u, g);
+  const keys = listAchievements(u, g).map((a) => a.key);
+  assert.ok(keys.includes('messages_1k'));
+  assert.ok(keys.includes('reputation_50'));
+  assert.ok(keys.includes('level_25'));
+});
+
+test('overallScore нормализует метрики в диапазон 0..10000', async () => {
+  const { overallScore, OVERALL_MAX } = await import('../modules/score.js');
+  assert.equal(overallScore({}), 0);
+
+  const mid = overallScore({
+    total_xp: 25_000,
+    balance: 50_000,
+    total_messages: 5_000,
+    total_voice_minutes: 2_500,
+    total_reactions_received: 250,
+  });
+  assert.ok(mid >= 4_000 && mid <= 6_000, `ожидали ~5000, получили ${mid}`);
+
+  const max = overallScore({
+    total_xp: 999_999,
+    balance: 999_999,
+    total_messages: 999_999,
+    total_voice_minutes: 999_999,
+    total_reactions_received: 999_999,
+  });
+  assert.equal(max, OVERALL_MAX);
 });
 
 test('сезонный рейтинг считает XP, сообщения и голос', async () => {
@@ -214,4 +287,73 @@ test('сезонный рейтинг считает XP, сообщения и �
   resetSeasonCounters(g);
   const after = getSeasonTop(g, 10);
   assert.equal(seasonScore(after[0] || {}), 0);
+});
+
+test('work не платит дважды подряд', async () => {
+  const { claimWork } = await import('../commands/work.js');
+  const g = 'g-work';
+  const u = 'u-work';
+  ensureUser(u, g);
+  const first = claimWork(u, g);
+  assert.ok(first.pay >= 40 && first.pay <= 150);
+  assert.throws(
+    () => claimWork(u, g),
+    (err) => err.message === 'COOLDOWN',
+  );
+});
+
+test('истёкший блэкджек возвращает ставку', async () => {
+  const { sweepExpiredBlackjackStates } = await import('../commands/casino.js');
+  const g = 'g-bj';
+  const u = 'u-bj';
+  ensureUser(u, g);
+  removeCoins(u, 100, g);
+  assert.equal(getUser(u, g).balance, 0);
+
+  getDb().prepare(`
+    INSERT INTO ephemeral_state (key, payload, expires_at)
+    VALUES (?, ?, ?)
+  `).run(
+    `bj:${g}:${u}`,
+    JSON.stringify({ bet: 100, userId: u, guildId: g }),
+    Date.now() - 1000,
+  );
+
+  assert.equal(sweepExpiredBlackjackStates(), 1);
+  assert.equal(getUser(u, g).balance, 100);
+});
+
+test('отмена розыгрыша возвращает платный вход', () => {
+  const g = 'g-gw';
+  ensureUser('u-gw1', g);
+  ensureUser('u-gw2', g);
+  removeCoins('u-gw1', 50, g);
+  removeCoins('u-gw2', 50, g);
+  assert.equal(getUser('u-gw1', g).balance, 50);
+  assert.equal(getUser('u-gw2', g).balance, 50);
+
+  const db = getDb();
+  const cost = 50;
+  const { lastInsertRowid: id } = db.prepare(`
+    INSERT INTO giveaways (guild_id, channel_id, host_id, prize, cost, ends_at, status)
+    VALUES (?, ?, ?, ?, ?, ?, 'running')
+  `).run(g, 'ch-gw', 'host-gw', 'Тест', cost, Date.now() + 60_000);
+
+  db.prepare('INSERT INTO giveaway_entries (giveaway_id, user_id) VALUES (?, ?)').run(id, 'u-gw1');
+  db.prepare('INSERT INTO giveaway_entries (giveaway_id, user_id) VALUES (?, ?)').run(id, 'u-gw2');
+
+  runInTransaction(() => {
+    const gw = db.prepare('SELECT * FROM giveaways WHERE id = ?').get(id);
+    const entries = db.prepare('SELECT user_id FROM giveaway_entries WHERE giveaway_id = ?').all(id);
+    for (const entry of entries) {
+      addCoins(entry.user_id, gw.cost, g);
+    }
+    db.prepare('DELETE FROM giveaway_entries WHERE giveaway_id = ?').run(id);
+    db.prepare("UPDATE giveaways SET status = 'cancelled' WHERE id = ?").run(id);
+  });
+
+  assert.equal(getUser('u-gw1', g).balance, 100);
+  assert.equal(getUser('u-gw2', g).balance, 100);
+  const row = db.prepare('SELECT status FROM giveaways WHERE id = ?').get(id);
+  assert.equal(row.status, 'cancelled');
 });

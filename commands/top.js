@@ -7,7 +7,7 @@ import {
 } from 'discord.js';
 import { getDb } from '../database.js';
 import { COLOR, guildFooter } from '../utils/ui.js';
-import { OVERALL_MAX, overallScore } from '../modules/score.js';
+import { overallScore } from '../modules/score.js';
 
 // ══════════════════════════════════════════════════════════════════
 // КОМАНДА /ТОП — СИСТЕМА РЕЙТИНГА
@@ -15,9 +15,8 @@ import { OVERALL_MAX, overallScore } from '../modules/score.js';
 //
 // Показывает ТОП-10 пользователей в выбранной категории.
 //
-// Общий рейтинг считается по формуле (см. modules/score.js):
-//   Опыт × 0.1 + Валюта × 0.1 + Сообщения × 0.5 + Войс × 0.05 + Репутация × 10
-// ПРЕДЕЛ (CAP): максимальное значение общего рейтинга — 1 000 000.
+// Общий рейтинг: нормализованные метрики × веса (см. modules/score.js).
+// Диапазон: 0–10 000 баллов.
 //
 // Категории (переключаются select-меню):
 //   • 🌟 Общий рейтинг — по формуле (с пределом 1 000 000)
@@ -129,6 +128,42 @@ function getDisplayName(interaction, userId) {
   return `**${mention}**`;
 }
 
+function buildPodiumBlock(interaction, rows, category) {
+  const medals = ['🥇', '🥈', '🥉'];
+  return rows.slice(0, 3).map((u, i) => {
+    const name = getDisplayName(interaction, u.user_id);
+    return `${medals[i]} ${name}\n> ${formatValue(u, category)}`;
+  }).join('\n\n');
+}
+
+function buildRankListBlock(interaction, rows, category) {
+  return rows.slice(3).map((u, i) => {
+    const pos = i + 4;
+    const num = String(pos).padStart(2, ' ');
+    return `\`${num}.\` ${getDisplayName(interaction, u.user_id)} — ${formatValue(u, category)}`;
+  }).join('\n');
+}
+
+function buildCategoryStat(users, category) {
+  if (!users.length) return 'Пока пусто';
+  const values = users.map((u) => categoryValue(u, category));
+  const best = Math.max(...values);
+  const avg = values.reduce((a, b) => a + b, 0) / values.length;
+  if (category === 'balance') {
+    return `Лучший: **${Math.round(best).toLocaleString('ru-RU')} ⚡HLD**\nСреднее: **${Math.round(avg).toLocaleString('ru-RU')} ⚡HLD**`;
+  }
+  if (category === 'xp') {
+    return `Лучший: **${Math.round(best).toLocaleString('ru-RU')} ⚡**\nСреднее: **${Math.round(avg).toLocaleString('ru-RU')} ⚡**`;
+  }
+  if (category === 'messages') {
+    return `Лучший: **${Math.round(best).toLocaleString('ru-RU')} 💬**\nСреднее: **${Math.round(avg).toLocaleString('ru-RU')} 💬**`;
+  }
+  if (category === 'reputation') {
+    return `Лучший: **${Math.round(best).toLocaleString('ru-RU')} 👍**\nСреднее: **${Math.round(avg).toLocaleString('ru-RU')} 👍**`;
+  }
+  return `Лучший: **${Math.round(best).toLocaleString('ru-RU')}**\nСреднее: **${Math.round(avg).toLocaleString('ru-RU')}**`;
+}
+
 /**
  * Строит embed топа-10 для выбранной категории.
  * @param {import('discord.js').Interaction} interaction
@@ -150,23 +185,53 @@ function buildTopEmbed(interaction, category) {
 
 // Топ-10
   const top10 = users.slice(0, TOP_LIMIT);
+  const currentIndex = users.findIndex((u) => u.user_id === interaction.user.id);
+  const currentUserRow = currentIndex >= 0 ? users[currentIndex] : null;
+  const podium = buildPodiumBlock(interaction, top10, category);
+  const rankList = buildRankListBlock(interaction, top10, category);
 
-  const medals = ['🥇', '🥈', '🥉'];
-  // Собираем строки топа, разделяя каждое место пустой строкой
-  const lines = top10.map((u, i) => {
-    const place = medals[i] || `\`${i + 1}.\``;
-    const name = getDisplayName(interaction, u.user_id);
-    return `${place} ${name} — ${formatValue(u, category)}`;
-  }).reduce((acc, line, i) => i === 0 ? [line] : [...acc, '', line], []);
-
-  return new EmbedBuilder()
-    .setColor(COLOR.gold)
-    .setTitle(`${cat.emoji}  ${cat.label}`)
-    .setDescription(cat.description)
-    .addFields(
-      { name: `Топ-${TOP_LIMIT}`, value: lines.length ? lines.join('\n') : 'Пока пусто.', inline: false }
+  const embed = new EmbedBuilder()
+    .setColor(category === 'overall' ? COLOR.gold : COLOR.accent)
+    .setTitle(`${cat.emoji} ${cat.label}`)
+    .setDescription(
+      `${cat.description}\n\n` +
+      `Всего участников в рейтинге: **${users.length.toLocaleString('ru-RU')}**`
     )
     .setFooter({ text: guildFooter(interaction, 'меню ниже меняет категорию') });
+
+  if (interaction.guild?.iconURL) {
+    embed.setThumbnail(interaction.guild.iconURL({ size: 256 }));
+  }
+
+  embed.addFields({
+    name: 'Подиум',
+    value: podium || 'Пока пусто.',
+    inline: false,
+  });
+
+  if (rankList) {
+    embed.addFields({
+      name: 'Остальные места',
+      value: rankList,
+      inline: false,
+    });
+  }
+
+  embed.addFields({
+    name: 'Сводка',
+    value: buildCategoryStat(users, category),
+    inline: true,
+  });
+
+  if (currentUserRow) {
+    embed.addFields({
+      name: 'Твоя позиция',
+      value: `**#${currentIndex + 1}** — ${formatValue(currentUserRow, category)}`,
+      inline: true,
+    });
+  }
+
+  return embed;
 }
 
 /**

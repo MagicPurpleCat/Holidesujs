@@ -10,6 +10,7 @@ import { SlashCommandBuilder,
   StringSelectMenuOptionBuilder,
   MessageFlags } from 'discord.js';
 import { getDb, removeCoins, addCoins, runInTransaction, setEphemeral, getEphemeral, deleteEphemeral } from '../database.js';
+import { unlockAchievement } from '../modules/progress.js';
 import { assignLevelRoles } from './rank.js';
 import { COLOR, fmtNum } from '../utils/ui.js';
 
@@ -32,24 +33,24 @@ export const CREATION_COST = 5000;
 const COMMISSION_RATE = 0.4; // 40% создателю
 const FLOW_TTL_MS = 15 * 60 * 1000;
 
-function shopFlowKey(userId) {
-  return `shop_flow:${userId}`;
+function shopFlowKey(guildId, userId) {
+  return `shop_flow:${guildId}:${userId}`;
 }
 
-function getShopFlow(userId) {
-  return getEphemeral(shopFlowKey(userId));
+function getShopFlow(userId, guildId) {
+  return getEphemeral(shopFlowKey(guildId, userId));
 }
 
-function saveShopFlow(userId, flow) {
-  setEphemeral(shopFlowKey(userId), {
+function saveShopFlow(userId, guildId, flow) {
+  setEphemeral(shopFlowKey(guildId, userId), {
     step: flow.step,
     color: flow.color ?? null,
     name: flow.name ?? null,
   }, FLOW_TTL_MS);
 }
 
-function clearShopFlow(userId) {
-  deleteEphemeral(shopFlowKey(userId));
+function clearShopFlow(userId, guildId) {
+  deleteEphemeral(shopFlowKey(guildId, userId));
 }
 
 // ─── Хранилище пагинации ───────────────────────────────────────────
@@ -533,6 +534,7 @@ async function handleBuyRole(interaction, roleDbId) {
       )
 
     await interaction.reply({ embeds: [embed] });
+    unlockAchievement(user.id, interaction.guildId, 'shop_buy');
 
     if (isFull) {
       try {
@@ -648,6 +650,7 @@ async function handleBuyBoost(interaction, itemId) {
     )
 
   await interaction.reply({ embeds: [embed], ephemeral: false });
+  unlockAchievement(user.id, interaction.guildId, 'shop_buy');
 }
 
 // ===================================================================
@@ -667,7 +670,7 @@ async function startCreationFlow(interaction) {
   }
 
   // Инициализируем состояние
-  saveShopFlow(interaction.user.id, { step: 'color', color: null, name: null });
+  saveShopFlow(interaction.user.id, interaction.guildId, { step: 'color', color: null, name: null });
 
   return showColorPicker(interaction);
 }
@@ -713,14 +716,14 @@ async function showColorPicker(interaction) {
   });
 
   // Сохраняем сообщение для обновления
-  const flow = getShopFlow(interaction.user.id);
+  const flow = getShopFlow(interaction.user.id, interaction.guildId);
   if (flow) {
-    saveShopFlow(interaction.user.id, flow);
+    saveShopFlow(interaction.user.id, interaction.guildId, flow);
   }
 }
 
 async function handleColorPick(interaction, hex) {
-  const flow = getShopFlow(interaction.user.id);
+  const flow = getShopFlow(interaction.user.id, interaction.guildId);
   if (!flow) {
     return interaction.reply({
       content: '❌ Сессия создания истекла. Начни заново через `/shop`.',
@@ -730,7 +733,7 @@ async function handleColorPick(interaction, hex) {
 
   flow.color = hex;
   flow.step = 'name';
-  saveShopFlow(interaction.user.id, flow);
+  saveShopFlow(interaction.user.id, interaction.guildId, flow);
 
   // Предлагаем ввести название
   const embed = new EmbedBuilder()
@@ -778,7 +781,7 @@ export async function handleCreationModal(interaction) {
   if (interaction.customId !== 'creation_name_modal') return;
 
   const name = interaction.fields.getTextInputValue('role_name');
-  const flow = getShopFlow(interaction.user.id);
+  const flow = getShopFlow(interaction.user.id, interaction.guildId);
   if (!flow) {
     return interaction.reply({
       content: '❌ Сессия истекла. Начни заново через `/shop`.',
@@ -788,7 +791,7 @@ export async function handleCreationModal(interaction) {
 
   flow.name = name;
   flow.step = 'confirm';
-  saveShopFlow(interaction.user.id, flow);
+  saveShopFlow(interaction.user.id, interaction.guildId, flow);
 
   // Показываем подтверждение
   const embed = new EmbedBuilder()
@@ -828,7 +831,7 @@ export async function handleCreationModal(interaction) {
 }
 
 async function handleCreationConfirm(interaction) {
-  const flow = getShopFlow(interaction.user.id);
+  const flow = getShopFlow(interaction.user.id, interaction.guildId);
   if (!flow || !flow.color || !flow.name) {
     return interaction.reply({
       content: '❌ Сессия истекла. Начни заново через `/shop`.',
@@ -846,7 +849,7 @@ async function handleCreationConfirm(interaction) {
       reason: `Создание кастомной роли пользователем ${interaction.user.tag}`,
     });
   } catch (err) {
-    clearShopFlow(interaction.user.id);
+    clearShopFlow(interaction.user.id, interaction.guildId);
     console.error(`[SHOP] Ошибка создания роли:`, err.message);
     return interaction.reply({
       content: `❌ Ошибка при создании роли: ${err.message}`,
@@ -866,7 +869,7 @@ async function handleCreationConfirm(interaction) {
     });
   } catch (err) {
     await createdRole.delete('Откат создания роли: ошибка списания или БД').catch(() => {});
-    clearShopFlow(interaction.user.id);
+    clearShopFlow(interaction.user.id, interaction.guildId);
     if (err.message === 'NO_FUNDS') {
       return interaction.reply({
         content: `❌ Недостаточно ⚡HLD. Нужно: **${CREATION_COST} ⚡HLD**`,
@@ -880,7 +883,7 @@ async function handleCreationConfirm(interaction) {
     });
   }
 
-  clearShopFlow(interaction.user.id);
+  clearShopFlow(interaction.user.id, interaction.guildId);
 
   const embed = new EmbedBuilder()
     .setColor(flow.color)
@@ -907,7 +910,7 @@ async function handleCreationConfirm(interaction) {
 }
 
 async function handleCreationCancel(interaction) {
-  clearShopFlow(interaction.user.id);
+  clearShopFlow(interaction.user.id, interaction.guildId);
 
   const { embed, components } = buildMainMenu();
   await interaction.update({ embeds: [embed], components });

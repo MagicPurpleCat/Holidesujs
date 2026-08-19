@@ -2,6 +2,7 @@ import { Events, MessageFlags } from 'discord.js';
 import { getDb } from '../database.js';
 import { getGuildConfig, commandFeatureKey } from '../utils/guildConfig.js';
 import { logErr } from '../utils/botLog.js';
+import { handleAchievementsInteraction } from '../commands/achievements.js';
 import { handleTopSelect } from '../commands/top.js';
 import { handleProfileButtons, handleProfileModals, handleProfileSelectMenus } from '../commands/profile.js';
 import {
@@ -49,6 +50,7 @@ import { handleBlackjackButton } from '../commands/casino.js';
 import { handleTicketButton, handleTicketClose } from '../commands/ticket.js';
 import { handleGiveawayButton } from '../commands/giveaway.js';
 import { handleWelcomeReadyButton, handleWelcomeRoleModal } from '../modules/welcomeNPC.js';
+import { handleSelfRoleSelect } from '../modules/selfRolesPanel.js';
 import { handleVoicePanelButtons } from '../modules/voicePanel.js';
 import { reportInteractionError, safeInteractionFallback } from '../utils/errorHandling.js';
 
@@ -253,6 +255,11 @@ export function createInteractionHandler(shardId, client) {
           if (handled !== false) return;
         }
 
+        if (customId.startsWith('ach_view:')) {
+          const handled = await handleAchievementsInteraction(interaction).catch(() => false);
+          if (handled) return;
+        }
+
         const profileButtonHandled = await handleProfileButtons(interaction).catch(() => false);
         if (profileButtonHandled) return;
 
@@ -313,6 +320,19 @@ export function createInteractionHandler(shardId, client) {
 
       if (interaction.isStringSelectMenu()) {
         const customId = interaction.customId || '';
+
+        if (customId.startsWith('self_role:')) {
+          const handled = await handleSelfRoleSelect(interaction).catch((e) => {
+            logErr(shardId, 'SELF_ROLES', e.message);
+            return false;
+          });
+          if (handled) return;
+        }
+
+        if (customId.startsWith('ach_cat:')) {
+          const handled = await handleAchievementsInteraction(interaction).catch(() => false);
+          if (handled) return;
+        }
 
         const profileSelectHandled = await handleProfileSelectMenus(interaction).catch(() => false);
         if (profileSelectHandled) return;

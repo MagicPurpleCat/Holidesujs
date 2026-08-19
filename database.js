@@ -174,15 +174,20 @@ export function initDatabase() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS relationships (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      guild_id TEXT NOT NULL DEFAULT '',
       user1_id TEXT NOT NULL,
       user2_id TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'married' CHECK(status IN ('married', 'divorced', 'engaged')),
       married_at TEXT NOT NULL DEFAULT (datetime('now')),
-      divorced_at TEXT DEFAULT NULL,
-      FOREIGN KEY (user1_id) REFERENCES users(user_id),
-      FOREIGN KEY (user2_id) REFERENCES users(user_id)
+      divorced_at TEXT DEFAULT NULL
     );
   `);
+
+  const relationshipsInfo = db.prepare('PRAGMA table_info(relationships)').all();
+  if (!relationshipsInfo.some((col) => col.name === 'guild_id')) {
+    db.exec("ALTER TABLE relationships ADD COLUMN guild_id TEXT NOT NULL DEFAULT ''");
+    console.log('[DB] Added column guild_id to relationships table.');
+  }
 
   // ─── User activity table (активность для динамических ролей) ───────
   db.exec(`

@@ -1,5 +1,5 @@
 import { SlashCommandBuilder } from 'discord.js';
-import { getDb, getUser, addCoins } from '../database.js';
+import { getDb, ensureUser, getUser, addCoins, runInTransaction, gid } from '../database.js';
 import { checkEconomyAchievements } from '../modules/progress.js';
 import { brandEmbed, COLOR, fmtHld, guildFooter, replyWait } from '../utils/ui.js';
 
@@ -12,38 +12,67 @@ const JOBS = [
   { name: 'Ночная охрана', line: 'Досмотрел до утра пустой канал AFK.', min: 70, max: 150 },
 ];
 
+function parseWorkTime(value) {
+  if (!value) return 0;
+  return new Date(value + (String(value).includes('Z') ? '' : 'Z')).getTime();
+}
+
+export function claimWork(userId, guildId) {
+  const job = JOBS[Math.floor(Math.random() * JOBS.length)];
+  const pay = Math.floor(Math.random() * (job.max - job.min + 1)) + job.min;
+  const g = gid(guildId);
+
+  return runInTransaction(() => {
+    const db = getDb();
+    const row = db.prepare(
+      'SELECT last_work_at, balance FROM users WHERE guild_id = ? AND user_id = ?',
+    ).get(g, userId);
+
+    if (!row) throw new Error('NO_USER');
+
+    const last = parseWorkTime(row.last_work_at);
+    if (last && Date.now() - last < COOLDOWN_MS) {
+      const err = new Error('COOLDOWN');
+      err.waitMs = COOLDOWN_MS - (Date.now() - last);
+      throw err;
+    }
+
+    db.prepare(`
+      UPDATE users
+      SET last_work_at = datetime('now'), balance = balance + ?
+      WHERE guild_id = ? AND user_id = ?
+    `).run(pay, g, userId);
+
+    return { job, pay, balance: (row.balance || 0) + pay };
+  });
+}
+
 export default {
   data: new SlashCommandBuilder()
     .setName('work')
     .setDescription('Подработка: 40–150 ⚡HLD раз в час'),
 
   async execute(interaction) {
-    const user = getUser(interaction.user.id, interaction.guildId);
-    if (user.last_work_at) {
-      const last = new Date(user.last_work_at + (user.last_work_at.includes('Z') ? '' : 'Z')).getTime();
-      const wait = COOLDOWN_MS - (Date.now() - last);
-      if (wait > 0) {
-        const mins = Math.ceil(wait / 60000);
+    ensureUser(interaction.user.id, interaction.guildId);
+
+    try {
+      const result = claimWork(interaction.user.id, interaction.guildId);
+      checkEconomyAchievements(interaction.user.id, interaction.guildId);
+
+      const embed = brandEmbed({
+        color: COLOR.gold,
+        title: result.job.name,
+        description: `${result.job.line}\n\nЗаработано ${fmtHld(result.pay)}`,
+        footer: guildFooter(interaction, 'следующая смена через 1 час'),
+      }).addFields({ name: 'Баланс', value: fmtHld(result.balance), inline: true });
+
+      await interaction.reply({ embeds: [embed] });
+    } catch (err) {
+      if (err.message === 'COOLDOWN') {
+        const mins = Math.ceil((err.waitMs || COOLDOWN_MS) / 60000);
         return replyWait(interaction, `Следующая смена через **${mins} мин.**`);
       }
+      throw err;
     }
-
-    const job = JOBS[Math.floor(Math.random() * JOBS.length)];
-    const pay = Math.floor(Math.random() * (job.max - job.min + 1)) + job.min;
-    addCoins(interaction.user.id, pay, interaction.guildId);
-    getDb().prepare(
-      "UPDATE users SET last_work_at = datetime('now') WHERE guild_id = ? AND user_id = ?",
-    ).run(interaction.guildId, interaction.user.id);
-    checkEconomyAchievements(interaction.user.id, interaction.guildId);
-    const updated = getUser(interaction.user.id, interaction.guildId);
-
-    const embed = brandEmbed({
-      color: COLOR.gold,
-      title: job.name,
-      description: `${job.line}\n\nЗаработано ${fmtHld(pay)}`,
-      footer: guildFooter(interaction, 'следующая смена через 1 час'),
-    }).addFields({ name: 'Баланс', value: fmtHld(updated.balance), inline: true });
-
-    await interaction.reply({ embeds: [embed] });
   },
 };

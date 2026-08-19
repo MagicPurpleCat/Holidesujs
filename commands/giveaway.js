@@ -7,7 +7,7 @@ import {
   MessageFlags,
   PermissionFlagsBits,
 } from 'discord.js';
-import { getDb, removeCoins } from '../database.js';
+import { getDb, removeCoins, addCoins, runInTransaction } from '../database.js';
 import { getUserLevel } from '../utils/permissions.js';
 import { COLOR, fmtHld, fmtNum, replyFail } from '../utils/ui.js';
 
@@ -44,9 +44,21 @@ export default {
         .addIntegerOption((opt) =>
           opt.setName('ставка').setDescription('Цена участия в ⚡HLD (0 = бесплатно)').setRequired(false).setMinValue(0)
         )
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('cancel')
+        .setDescription('Отменить розыгрыш и вернуть платный вход')
+        .addIntegerOption((opt) =>
+          opt.setName('id').setDescription('ID розыгрыша из футера embed').setRequired(true).setMinValue(1)
+        )
     ),
 
   async execute(interaction) {
+    const sub = interaction.options.getSubcommand();
+    if (sub === 'cancel') {
+      return cancelGiveaway(interaction);
+    }
     if (!canHost(interaction)) {
       return replyFail(interaction, 'Нужны права модератора.');
     }
@@ -95,6 +107,65 @@ function buildGiveawayEmbed({ id, prize, cost, endsAt, hostId, entries, winnerId
     });
   }
   return embed;
+}
+
+async function cancelGiveaway(interaction) {
+  if (!canHost(interaction)) {
+    return replyFail(interaction, 'Нужны права модератора.');
+  }
+
+  const id = interaction.options.getInteger('id');
+  const db = getDb();
+  const gw = db.prepare("SELECT * FROM giveaways WHERE id = ? AND guild_id = ? AND status = 'running'").get(id, interaction.guildId);
+  if (!gw) {
+    return replyFail(interaction, 'Розыгрыш не найден или уже завершён.');
+  }
+
+  const entries = db.prepare('SELECT user_id FROM giveaway_entries WHERE giveaway_id = ?').all(id);
+  let refunded = 0;
+
+  runInTransaction(() => {
+    if (gw.cost > 0) {
+      for (const entry of entries) {
+        addCoins(entry.user_id, gw.cost, interaction.guildId);
+        refunded += 1;
+      }
+    }
+    db.prepare('DELETE FROM giveaway_entries WHERE giveaway_id = ?').run(id);
+    db.prepare("UPDATE giveaways SET status = 'cancelled', winner_id = NULL WHERE id = ?").run(id);
+  });
+
+  const embed = buildGiveawayEmbed({
+    id: gw.id,
+    prize: gw.prize,
+    cost: gw.cost,
+    endsAt: gw.ends_at,
+    hostId: gw.host_id,
+    entries: 0,
+  })
+    .setColor(COLOR.danger)
+    .setTitle('Розыгрыш отменён')
+    .setDescription(`**${gw.prize}**\n\nОрганизатор: <@${interaction.user.id}>`)
+    .setFooter({ text: `Holidesu · #${id} · отменён` });
+
+  if (gw.message_id) {
+    try {
+      const channel = await interaction.client.channels.fetch(gw.channel_id).catch(() => null);
+      const msg = channel ? await channel.messages.fetch(gw.message_id).catch(() => null) : null;
+      if (msg) await msg.edit({ embeds: [embed], components: [] }).catch(() => {});
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const refundText = gw.cost > 0
+    ? ` Возвращено **${refunded}** участникам по ${fmtHld(gw.cost)}.`
+    : '';
+
+  await interaction.reply({
+    content: `✅ Розыгрыш **#${id}** отменён.${refundText}`,
+    flags: MessageFlags.Ephemeral,
+  });
 }
 
 export async function handleGiveawayButton(interaction) {

@@ -186,10 +186,12 @@ function drawHorns(ctx, x, y, size) {
   ctx.restore();
 }
 
-async function drawAvatar(ctx, data, cx, cy, r, accent) {
+async function drawAvatar(ctx, data, cx, cy, r, accent, opts = {}) {
   const x = cx - r;
   const y = cy - r;
   const size = r * 2;
+  const outerRingWidth = opts.outerRingWidth ?? 7;
+  const innerRingWidth = opts.innerRingWidth ?? 2;
 
   ctx.save();
   ctx.shadowColor = accent;
@@ -220,12 +222,12 @@ async function drawAvatar(ctx, data, cx, cy, r, accent) {
   ctx.beginPath();
   ctx.arc(cx, cy, r - 4, 0, Math.PI * 2);
   ctx.strokeStyle = accent;
-  ctx.lineWidth = 7;
+  ctx.lineWidth = outerRingWidth;
   ctx.stroke();
   ctx.beginPath();
   ctx.arc(cx, cy, r - 14, 0, Math.PI * 2);
   ctx.strokeStyle = 'rgba(255,255,255,0.28)';
-  ctx.lineWidth = 2;
+  ctx.lineWidth = innerRingWidth;
   ctx.stroke();
 }
 
@@ -306,23 +308,41 @@ export async function generateProfileImage(data) {
     strokeRound(ctx, 34, 34, W - 68, H - 68, 38, 'rgba(255,255,255,0.18)', 2);
   }
 
-  const leftW = 560;
-  const cx = panel.x + 80 + 200;
-  const cy = 268;
-  await drawAvatar(ctx, data, cx, cy, 200, accent);
+  const leftW = 668 - panel.x;
+  const leftCenterX = panel.x + leftW / 2;
+  const avatarR = 200;
+  const avatarDiameter = avatarR * 2;
+  const gapAfterAvatar = 32;
+  const nameFontSize = 42;
+  const gapAfterName = 10;
+  const nickFontSize = 22;
+  const gapAfterNick = 30;
+  const pillH = 36;
+  const clanGap = 50;
+
+  let leftBlockHeight = avatarDiameter + gapAfterAvatar + nameFontSize + gapAfterName + nickFontSize + gapAfterNick;
+  if (data.clanTag) leftBlockHeight += pillH + clanGap;
+  leftBlockHeight += pillH;
+
+  const leftBlockTop = panel.y + (panel.h - leftBlockHeight) / 2;
+  const cx = leftCenterX;
+  const cy = leftBlockTop + avatarR;
+  await drawAvatar(ctx, data, cx, cy, avatarR, accent);
 
   const name = data.username || 'Пользователь';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
   ctx.fillStyle = C.white;
-  ctx.font = font(42, true);
-  ctx.fillText(trunc(ctx, name, leftW - 40), cx, 500);
+  ctx.font = font(nameFontSize, true);
+  const nameY = leftBlockTop + avatarDiameter + gapAfterAvatar;
+  ctx.fillText(trunc(ctx, name, leftW - 40), cx, nameY);
 
   ctx.fillStyle = C.aqua;
-  ctx.font = font(22);
-  ctx.fillText(trunc(ctx, data.nickname || '', leftW - 40), cx, 552);
+  ctx.font = font(nickFontSize);
+  const nickY = nameY + nameFontSize + gapAfterName;
+  ctx.fillText(trunc(ctx, data.nickname || '', leftW - 40), cx, nickY);
 
-  let badgeY = 604;
+  let badgeY = nickY + nickFontSize + gapAfterNick;
   if (data.clanTag) {
     ctx.font = font(18, true);
     const clanText = trunc(ctx, data.clanTag, 360);
@@ -394,7 +414,52 @@ export async function generateProfileImage(data) {
   const infoH = 88;
   const half = (rw - gap) / 2;
   const married = data.marriageWith && data.marriageWith !== 'Отсутствует';
-  drawStat(ctx, 'Брак', married ? data.marriageWith : 'Не в браке', rx, infoY, half, infoH);
+  if (married) {
+    // Плитка "Брак" с аватаркой партнёра + именем
+    fillRound(ctx, rx, infoY, half, infoH, 18, C.glass2);
+    strokeRound(ctx, rx, infoY, half, infoH, 18, C.line);
+
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = C.faint;
+    ctx.font = font(15, true);
+    ctx.fillText('БРАК', rx + 22, infoY + 12);
+
+    // Кружок чуть меньше и ниже, чтобы не перекрывал подпись "БРАК"
+    const avatarCy = infoY + infoH / 2;
+    const avatarR = Math.max(19, Math.min(23, (infoH / 2) - 11));
+
+    // Центрируем по фактической ширине: аватар + реальная ширина имени
+    const centerX = rx + half / 2;
+    const gapX = 18;
+    const avatarW = avatarR * 2;
+    const nameMaxW = Math.max(120, Math.min(260, half - 44 - avatarW - gapX));
+    ctx.font = font(26, true);
+    const marriageText = trunc(ctx, data.marriageWith, nameMaxW);
+    const nameW = Math.ceil(ctx.measureText(marriageText).width);
+    const groupW = avatarW + gapX + nameW;
+    const groupLeftX = centerX - groupW / 2;
+    const avatarCx = groupLeftX + avatarR;
+    const nameX = groupLeftX + avatarW + gapX;
+
+    await drawAvatar(
+      ctx,
+      { avatarUrl: data.marriagePartnerAvatarUrl },
+      avatarCx,
+      avatarCy,
+      avatarR,
+      accent,
+      { outerRingWidth: 2, innerRingWidth: 1 },
+    );
+
+    ctx.fillStyle = C.white;
+    ctx.textBaseline = 'middle';
+    ctx.font = font(26, true);
+    ctx.textAlign = 'left';
+    ctx.fillText(marriageText, nameX, avatarCy);
+  } else {
+    drawStat(ctx, 'Брак', 'Не в браке', rx, infoY, half, infoH);
+  }
   drawStat(ctx, 'На сервере с', data.joinDate || 'неизвестно', rx + half + gap, infoY, half, infoH);
 
   const aboutY = 526;
@@ -442,32 +507,19 @@ export async function generateProfileImage(data) {
   ctx.font = font(15, true);
   ctx.fillText('ДОСТИЖЕНИЯ', rx, achY);
 
-  if (!badges.length) {
-    ctx.fillStyle = C.muted;
-    ctx.font = font(20);
-    ctx.fillText('Пока нет — играй, фарми, женись, побеждай в войнах.', rx, achY + 40);
-  } else {
-    let px = rx;
-    let py = achY + 32;
-    ctx.font = font(18, true);
-    for (const badge of badges.slice(0, 12)) {
-      const label = String(badge);
-      const bw = Math.min(ctx.measureText(label).width + 32, 360);
-      if (px + bw > rx + rw) {
-        px = rx;
-        py += 48;
-        if (py > 980) break;
-      }
-      fillRound(ctx, px, py, bw, 40, 20, 'rgba(255,87,51,0.16)');
-      strokeRound(ctx, px, py, bw, 40, 20, 'rgba(255,87,51,0.35)');
-      ctx.fillStyle = C.white;
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'middle';
-      ctx.font = font(18, true);
-      ctx.fillText(trunc(ctx, label, bw - 24), px + 16, py + 20);
-      px += bw + 10;
-    }
-  }
+  fillRound(ctx, rx, achY + 26, rw, 110, 22, C.glass2);
+  strokeRound(ctx, rx, achY + 26, rw, 110, 22, C.line);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = C.white;
+  ctx.font = font(34, true);
+  ctx.fillText(`${Number(data.achievementsCount || badges.length || 0)}`, rx + rw / 2, achY + 78);
+  ctx.fillStyle = C.muted;
+  ctx.font = font(20);
+  ctx.fillText('Открыто достижений', rx + rw / 2, achY + 112);
+  ctx.fillStyle = C.faint;
+  ctx.font = font(18, true);
+  ctx.fillText('Полный список доступен по кнопке под профилем', rx + rw / 2, achY + 138);
 
   return canvas.toBuffer('image/png');
 }

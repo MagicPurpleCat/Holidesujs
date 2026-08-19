@@ -1265,7 +1265,6 @@ export async function handleEconomyModal(interaction) {
           member,
           xpResult.oldLevel,
           xpResult.newLevel,
-          interaction.channel,
         );
         levelUpMsg = `\n🎉 **Уровень повышен: ${xpResult.oldLevel} → ${xpResult.newLevel}!**`;
         if (reached.length > 0) {

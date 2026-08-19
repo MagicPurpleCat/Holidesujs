@@ -14,9 +14,15 @@ import { overallScore } from '../modules/score.js';
 import { generateServerStatsImage } from '../modules/canvas-server-stats.js';
 import { fmtNum } from '../utils/ui.js';
 
-function mkName(guild, id) {
-  const member = guild?.members?.cache?.get(id);
-  return member?.displayName || id;
+async function mkUserCard(guild, id) {
+  let member = guild?.members?.cache?.get(id);
+  if (!member && guild?.members?.fetch) {
+    member = await guild.members.fetch(id).catch(() => null);
+  }
+  return {
+    name: member?.displayName || id,
+    avatarUrl: member?.displayAvatarURL?.({ size: 128, extension: 'png' }) || null,
+  };
 }
 
 async function buildTopLists({ guild, db }) {
@@ -58,12 +64,42 @@ async function buildTopLists({ guild, db }) {
     .slice(0, 10);
 
   return {
-    overallTop: overallSorted.map((u) => ({ name: mkName(guild, u.user_id), value: `${Math.round(u.score).toLocaleString('ru-RU')}` })),
-    balanceTop: balanceTop.map((u) => ({ name: mkName(guild, u.user_id), value: `${fmtNum(u.balance)} ⚡HLD` })),
-    xpTop: xpTop.map((u) => ({ name: mkName(guild, u.user_id), value: `${fmtNum(u.total_xp)} ⚡` })),
-    messagesTop: messagesTop.map((u) => ({ name: mkName(guild, u.user_id), value: `${fmtNum(u.total_messages)} 💬` })),
-    voiceTop: voiceTop.map((u) => ({ name: mkName(guild, u.user_id), value: `${fmtNum(u.total_voice_minutes)} мин` })),
-    reputationTop: reputationTop.map((u) => ({ name: mkName(guild, u.user_id), value: `${fmtNum(u.total_reactions_received)} 👍` })),
+    overallTop: await Promise.all(
+      overallSorted.map(async (u) => {
+        const card = await mkUserCard(guild, u.user_id);
+        return { ...card, value: `${Math.round(u.score).toLocaleString('ru-RU')}` };
+      }),
+    ),
+    balanceTop: await Promise.all(
+      balanceTop.map(async (u) => {
+        const card = await mkUserCard(guild, u.user_id);
+        return { ...card, value: `${fmtNum(u.balance)} ⚡HLD` };
+      }),
+    ),
+    xpTop: await Promise.all(
+      xpTop.map(async (u) => {
+        const card = await mkUserCard(guild, u.user_id);
+        return { ...card, value: `${fmtNum(u.total_xp)} ⚡` };
+      }),
+    ),
+    messagesTop: await Promise.all(
+      messagesTop.map(async (u) => {
+        const card = await mkUserCard(guild, u.user_id);
+        return { ...card, value: `${fmtNum(u.total_messages)} 💬` };
+      }),
+    ),
+    voiceTop: await Promise.all(
+      voiceTop.map(async (u) => {
+        const card = await mkUserCard(guild, u.user_id);
+        return { ...card, value: `${fmtNum(u.total_voice_minutes)} мин` };
+      }),
+    ),
+    reputationTop: await Promise.all(
+      reputationTop.map(async (u) => {
+        const card = await mkUserCard(guild, u.user_id);
+        return { ...card, value: `${fmtNum(u.total_reactions_received)} 👍` };
+      }),
+    ),
   };
 }
 

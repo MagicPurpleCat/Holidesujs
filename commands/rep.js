@@ -1,5 +1,6 @@
 import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
 import { getDb, ensureUser, getEphemeral, setEphemeral } from '../database.js';
+import { checkEconomyAchievements } from '../modules/progress.js';
 import { COLOR } from '../utils/ui.js';
 
 const COOLDOWN_MS = 60 * 60 * 1000;
@@ -24,7 +25,8 @@ async function giveRep(interaction) {
     return interaction.reply({ content: '❌ Нельзя повышать репутацию самому себе.', flags: MessageFlags.Ephemeral });
   }
 
-  const pairKey = `rep:${fromId}:${target.id}`;
+  const guildId = interaction.guildId;
+  const pairKey = `rep:${guildId}:${fromId}:${target.id}`;
   const last = getEphemeral(pairKey);
   const lastAt = last?.at || 0;
   const wait = COOLDOWN_MS - (Date.now() - lastAt);
@@ -36,7 +38,7 @@ async function giveRep(interaction) {
     });
   }
 
-  const dayKey = `rep_daily:${fromId}:${utcDateKey()}`;
+  const dayKey = `rep_daily:${guildId}:${fromId}:${utcDateKey()}`;
   const daily = getEphemeral(dayKey);
   const givenToday = daily?.count || 0;
   if (givenToday >= DAILY_CAP) {
@@ -61,6 +63,7 @@ async function giveRep(interaction) {
     return Math.max(60_000, next - now.getTime());
   })();
   setEphemeral(dayKey, { count: givenToday + 1 }, dayMsLeft);
+  checkEconomyAchievements(target.id, interaction.guildId);
 
   const row = db.prepare('SELECT total_reactions_received FROM users WHERE guild_id = ? AND user_id = ?').get(interaction.guildId, target.id);
   const embed = new EmbedBuilder()

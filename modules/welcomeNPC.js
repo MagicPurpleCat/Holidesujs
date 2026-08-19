@@ -1,10 +1,14 @@
 // === МОДУЛЬ: WELCOME NPC (Приветствие в стиле RPG) ===
-import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, MessageFlags } from 'discord.js';
+import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, MessageFlags, AttachmentBuilder } from 'discord.js';
 import { getDb, ensureUser, addCoins } from '../database.js';
 import { getGuildConfig } from '../utils/guildConfig.js';
+import { generateWelcomeImage } from './canvas-welcome.js';
 
 // ⚠️ ВСТАВЬ СЮДА ID КАНАЛА ДЛЯ ПРИВЕТСТВИЙ (например #welcome)
 const WELCOME_CHANNEL_ID = null; // [ВСТАВЬ СЮДА ID КАНАЛА WELCOME]
+
+// Канал для кнопки «Перейти в основной канал»
+const MAIN_CHANNEL_ID = '1528102721679265973';
 
 // ⚠️ ВСТАВЬ СЮДА ID РОЛИ "ВЕЛОСЕР" ДЛЯ ВЫБОРА ПРИ ПРИВЕТСТВИИ
 const WELCOMER_ROLE_ID = null; // [ВСТАВЬ СЮДА ID РОЛИ "ВЕЛОСЕР"]
@@ -12,40 +16,6 @@ const WELCOMER_ROLE_ID = null; // [ВСТАВЬ СЮДА ID РОЛИ "ВЕЛОС
 // ══════════════════════════════════════════════════════════════════
 // ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 // ══════════════════════════════════════════════════════════════════
-
-/**
- * Создаёт Embed-приветствие для нового участника.
- * ИСПРАВЛЕНО: Удалена устаревшая метка "Holidesu" и статическая дата для улучшения UX.
- * Footer содержит только нейтральный текст.
- *
- * @param {import('discord.js').GuildMember} member
- * @param {boolean} hasMainChannel — есть ли основной канал для кнопки-ссылки
- * @returns {EmbedBuilder}
- */
-function createWelcomeEmbed(member, hasMainChannel) {
-  let description =
-    `**${member.displayName}**, ты появился в мире **${member.guild.name}**!\n\n` +
-    `🎭 **Твой класс:** Путешественник\n` +
-    `📜 **Квест:** Освоиться на сервере\n` +
-    `💰 **Начальный капитал:** 100 ⚡HLD\n\n` +
-    `**Что делать?**\n` +
-    `🗣 Общайся в чатах — получай XP и ⚡HLD\n` +
-    `🎤 Заходи в голосовые каналы — фарми валюту\n` +
-    `🎮 Используй \`/help\` для списка команд!\n\n` +
-    `*Перед началом приключения выбери свою роль ниже:*`;
-
-  // Если ID основного канала не указан — добавляем предупреждение
-  if (!hasMainChannel) {
-    description += '\n\n⚠️ **Обратитесь к администрации для получения ссылки на основной канал.**';
-  }
-
-  return new EmbedBuilder()
-    .setColor(0x9b59b6)
-    .setTitle('⚔️ Добро пожаловать в Holidesu!')
-    .setDescription(description)
-    .setThumbnail(member.user.displayAvatarURL({ size: 256 }))
-    .setFooter({ text: 'Добро пожаловать на сервер!' })
-}
 
 /**
  * Создаёт ActionRow с кнопкой-ссылкой на основной канал.
@@ -57,15 +27,37 @@ function createWelcomeEmbed(member, hasMainChannel) {
 function createActionRow(guildId, channelId) {
   const channelUrl = `https://discord.com/channels/${guildId}/${channelId}`;
 
-  // Формируем ссылку вида: https://discord.com/channels/{guildId}/{channelId}
-  const row = new ActionRowBuilder().addComponents(
+  return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setLabel('🚪 Перейти в основной канал')
       .setStyle(ButtonStyle.Link)
       .setURL(channelUrl),
   );
+}
 
-  return row;
+export async function buildWelcomeMessagePayload(member) {
+  const imageBuffer = await generateWelcomeImage({
+    displayName: member.displayName,
+    guildName: member.guild.name,
+    avatarUrl: member.user.displayAvatarURL({ extension: 'png', size: 512 }),
+    memberCount: member.guild.memberCount,
+  });
+
+  const components = [createActionRow(member.guild.id, MAIN_CHANNEL_ID)];
+
+  if (imageBuffer) {
+    return {
+      files: [new AttachmentBuilder(imageBuffer, { name: 'welcome.png' })],
+      embeds: [],
+      components,
+    };
+  }
+
+  return {
+    files: [],
+    embeds: [],
+    components,
+  };
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -73,13 +65,19 @@ function createActionRow(guildId, channelId) {
 // ══════════════════════════════════════════════════════════════════
 
 /**
- * Обрабатывает событие guildMemberAdd — отправляет RPG-приветствие.
- * Сначала пытается отправить в ЛС пользователю. Если ЛС закрыты —
- * отправляет в канал с fallback-сообщением.
+ * Обрабатывает событие guildMemberAdd — отправляет приветствие в welcome-канал.
  *
  * @param {import('discord.js').GuildMember} member
- * @param {Object} [config=null] — конфиг сервера (должен содержать mainChannelId)
+ * @param {Object} [config=null] — конфиг сервера
  */
+function resolveWelcomeChannel(member, config) {
+  const welcomeChannelId = config?.welcomeChannelId || WELCOME_CHANNEL_ID;
+  const welcomeChannel = welcomeChannelId
+    ? member.guild.channels.cache.get(welcomeChannelId)
+    : null;
+  return welcomeChannel || member.guild.systemChannel || null;
+}
+
 export async function handleGuildMemberAddNPC(member, config = null) {
   try {
     if (member.user.bot) return;
@@ -95,7 +93,6 @@ export async function handleGuildMemberAddNPC(member, config = null) {
       console.log(`[WELCOME] Начислено 100 ⚡HLD при возвращении ${member.user.tag}`);
     }
 
-    // ─── Получаем конфиг, если не передан ──────────────────────
     if (!config) {
       try {
         config = getGuildConfig(member.guild.id);
@@ -104,67 +101,24 @@ export async function handleGuildMemberAddNPC(member, config = null) {
       }
     }
 
-    // Определяем, есть ли основной канал для кнопки-ссылки
-    const mainChannelId = config?.mainChannelId || null;
-    const hasMainChannel = Boolean(mainChannelId);
-
-    // Создаём Embed и кнопку
-    const embed = createWelcomeEmbed(member, hasMainChannel);
-    let components = [];
-
-    if (hasMainChannel) {
-      // Создаём кнопку-ссылку "Перейти в основной канал"
-      const row = createActionRow(member.guild.id, mainChannelId);
-      components = [row];
+    const targetChannel = resolveWelcomeChannel(member, config);
+    if (!targetChannel) {
+      console.warn(`[WELCOME] Канал приветствий не настроен для ${member.guild.name} (${member.guild.id})`);
+      return;
     }
 
-    // ─── Пытаемся отправить в ЛС пользователю ──────────────────
-    try {
-      const dmChannel = await member.createDM();
-      await dmChannel.send({
-        embeds: [embed],
-        components: components,
-      });
-      console.log(`[WELCOME] Приветствие отправлено в ЛС для ${member.user.tag}`);
-    } catch (dmError) {
-      // ─── Обработка ошибки закрытых ЛС ────────────────────────
-      // Код 50007 = DiscordAPIError: Cannot send messages to this user
-      if (dmError.code === 50007 || (dmError.message && dmError.message.includes('Cannot send messages to this user'))) {
-        console.warn(`[WELCOME] ЛС закрыты для ${member.user.tag}, отправляем в канал.`);
+    const payload = await buildWelcomeMessagePayload(member);
 
-        // Создаём fallback-Embed с предупреждением
-        const fallbackEmbed = new EmbedBuilder()
-          .setColor(0xf1c40f)
-          .setTitle('⚠️ Личные сообщения закрыты')
-          .setDescription(
-            `⚠️ **${member.displayName}**, я попытался отправить приветствие в ЛС, ` +
-            `но ваши личные сообщения закрыты.\n\nВот ваше приветствие:`
-          );
-
-        // Определяем целевой канал для отправки
-        const guildCfg = getGuildConfig(member.guild.id);
-        const welcomeChannelId = guildCfg.welcomeChannelId || WELCOME_CHANNEL_ID;
-        const welcomeChannel = welcomeChannelId
-          ? member.guild.channels.cache.get(welcomeChannelId)
-          : null;
-        const targetChannel = welcomeChannel || member.guild.systemChannel;
-
-        if (targetChannel) {
-          await targetChannel.send({
-            content: `<@${member.id}>`,
-            embeds: [fallbackEmbed, embed],
-            components: components,
-          });
-          console.log(`[WELCOME] Приветствие отправлено в канал ${targetChannel.name} (${targetChannel.id})`);
-        } else {
-          // Если нет ни welcome-канала, ни системного — логируем ошибку
-          console.warn(`[WELCOME] Не найден канал для отправки fallback-приветствия для ${member.user.tag}`);
-        }
-      } else {
-        // Любая другая ошибка при отправке ЛС — пробрасываем дальше
-        throw dmError;
-      }
+    if (!payload.files.length) {
+      console.warn(`[WELCOME] Canvas недоступен — приветствие без картинки для ${member.user.tag}`);
     }
+
+    await targetChannel.send({
+      content: `<@${member.id}>`,
+      files: payload.files,
+      components: payload.components,
+    });
+    console.log(`[WELCOME] Приветствие отправлено в #${targetChannel.name} для ${member.user.tag}`);
   } catch (error) {
     console.error('[WELCOME] Ошибка приветствия:', error.message);
   }

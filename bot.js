@@ -9,13 +9,15 @@ import { UniversalShardManager } from './src/core/shard-manager.js';
 import { FALLBACK_OWNER_ID, getGuildConfig, getTriggerChannelId } from './utils/guildConfig.js';
 import { logInfo, logErr, logFatal } from './utils/botLog.js';
 import { registerInteractionHandler } from './handlers/interactions.js';
-import { registerGuildEvents, startVoiceFarmLoop } from './handlers/guildEvents.js';
+import { registerGuildEvents, startVoiceFarmLoop, restoreVoiceFarmSessions } from './handlers/guildEvents.js';
 import { startDbBackupLoop } from './modules/dbBackup.js';
 import { initVoicePanel, startPanelAutoUpdate } from './modules/voicePanel.js';
 import { startGiveawayLoop } from './commands/giveaway.js';
+import { startBlackjackSweepLoop } from './commands/casino.js';
 import { startSeasonLoop } from './modules/seasons.js';
 import { startServerStatsDailyLoop } from './modules/serverStatsDaily.js';
 import { initServerVoiceStats } from './modules/serverVoiceStats.js';
+import { initSelfRolesForGuild } from './modules/selfRolesPanel.js';
 import { allCommands } from './commands/index.js';
 
 initDatabase();
@@ -78,15 +80,22 @@ shardManager.start(
 
         setImmediate(() => {
           initVoicePanel(guild).catch((err) => logErr(shardId, 'VOICE_PANEL', `Ошибка инициализации для ${guild.id}: ${err.message}`));
+          initSelfRolesForGuild(guild).catch((err) => logErr(shardId, 'SELF_ROLES', `${guild.id}: ${err.message}`));
         });
       }
 
       startPanelAutoUpdate(client);
 
       startGiveawayLoop(client);
+      startBlackjackSweepLoop();
       startSeasonLoop(client);
       startServerStatsDailyLoop(client);
       initServerVoiceStats(client);
+
+      const restoredFarmers = await restoreVoiceFarmSessions(client);
+      if (restoredFarmers > 0) {
+        logInfo(shardId, 'FARM', `Восстановлено voice-сессий: ${restoredFarmers}`);
+      }
 
       logInfo(shardId, 'MAIN', `Полностью готов. Серверов: ${client.guilds.cache.size}.`);
     } catch (err) {

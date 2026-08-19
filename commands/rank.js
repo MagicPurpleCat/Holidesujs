@@ -48,27 +48,33 @@ export function isMilestoneLevel(level, guildId = null) {
 }
 
 /**
- * Поздравляет с новым уровнем. Если пересечена отметка — пишет, что роль сменили.
+ * Поздравляет с новым уровнем в ЛС. Если пересечена отметка — пишет, что роль сменили.
  *
  * @param {import('discord.js').GuildMember|null} member
  * @param {number} oldLevel
  * @param {number} newLevel
- * @param {import('discord.js').TextBasedChannel|null} announceChannel
  * @returns {Promise<number[]>} достигнутые отметки
  */
-export async function checkLevelMilestones(member, oldLevel, newLevel, announceChannel = null) {
+export async function checkLevelMilestones(member, oldLevel, newLevel) {
   if (!member || typeof newLevel !== 'number' || newLevel <= oldLevel) return [];
 
   const guildId = member.guild?.id || null;
+  const guildName = member.guild?.name || 'сервере';
   const previousRoleId = getRoleIdForLevel(oldLevel, guildId);
   await assignLevelRoles(member, newLevel);
   const reached = getReachedMilestones(oldLevel, newLevel, guildId);
   const newRoleId = getRoleIdForLevel(newLevel, guildId);
   const roleChanged = reached.length > 0 && !!newRoleId && newRoleId !== previousRoleId;
 
+  const roleLabel = (roleId) => {
+    if (!roleId) return 'нет роли';
+    const role = member.guild?.roles?.cache?.get(roleId);
+    return role ? `**${role.name}**` : 'новая роль';
+  };
+
   const lines = [
-    `🎉 Поздравляем, ${member}!`,
-    `Ты достиг **${newLevel}** уровня!`,
+    `🎉 Поздравляем, **${member.displayName}**!`,
+    `Ты достиг **${newLevel}** уровня на сервере **${guildName}**.`,
   ];
 
   if (reached.length === 1) {
@@ -78,8 +84,7 @@ export async function checkLevelMilestones(member, oldLevel, newLevel, announceC
   }
 
   if (roleChanged) {
-    const from = previousRoleId ? `<@&${previousRoleId}>` : 'нет роли';
-    lines.push(`🎭 Тебе поменяли роль: ${from} → <@&${newRoleId}>`);
+    lines.push(`🎭 Роль обновлена: ${roleLabel(previousRoleId)} → ${roleLabel(newRoleId)}`);
   }
 
   const embed = new EmbedBuilder()
@@ -89,12 +94,7 @@ export async function checkLevelMilestones(member, oldLevel, newLevel, announceC
     .setThumbnail(member.user.displayAvatarURL({ size: 128 }))
     .setFooter({ text: roleChanged ? 'Роль обновлена за отметку уровня' : 'Так держать!' });
 
-  const payload = { embeds: [embed] };
-  if (announceChannel && typeof announceChannel.send === 'function') {
-    await announceChannel.send(payload).catch(() => {});
-  } else {
-    await member.send(payload).catch(() => {});
-  }
+  await member.send({ embeds: [embed] }).catch(() => {});
 
   return reached;
 }

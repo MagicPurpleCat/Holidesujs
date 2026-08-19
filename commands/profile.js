@@ -19,7 +19,14 @@ import {
 import { getDb, getUser, ensureUser } from '../database.js';
 import { generateProfileImage } from '../modules/canvas-profile-minimal.js';
 import { overallScore } from '../modules/score.js';
-import { listAchievements, ACHIEVEMENTS, COSMETICS, getMemberClanRow } from '../modules/progress.js';
+import {
+  listAchievements,
+  ACHIEVEMENTS,
+  COSMETICS,
+  getMemberClanRow,
+  listOwnedCosmetics,
+} from '../modules/progress.js';
+import { buildAchievementsReply } from './achievements.js';
 
 // ============================================================================
 // EMBED-ФОЛБЕК, если модуль canvas недоступен.
@@ -56,9 +63,6 @@ function buildProfileEmbed(data) {
   if (data.marriageWith && data.marriageWith !== 'Отсутствует') {
     embed.addFields({ name: '❤️ Брак', value: data.marriageWith, inline: false });
   }
-  if (data.achievements) {
-    embed.addFields({ name: '🏅 Достижения', value: data.achievements, inline: false });
-  }
   if (data.clanTag) {
     embed.addFields({ name: '👥 Клан', value: data.clanTag, inline: true });
   }
@@ -83,7 +87,7 @@ function buildProfileEmbed(data) {
  * @param {import('better-sqlite3').Database} db - База данных
  * @returns {Object} profileData
  */
-function collectProfileData(target, member, db, guildId) {
+async function collectProfileData(target, member, db, guildId, viewerId = null) {
   const user = getUser(target.id, guildId);
   const activity = db.prepare('SELECT * FROM user_activity WHERE user_id = ?').get(target.id);
   const settings = db.prepare('SELECT * FROM user_settings WHERE user_id = ?').get(target.id);
@@ -97,15 +101,23 @@ function collectProfileData(target, member, db, guildId) {
   // Получаем никнейм (отображаемое имя)
   const nickname = member?.displayName || target.username;
 
-// Получаем партнера по браку
+  // Партнёр по браку (можно скрыть в настройках)
   let marriageWith = 'Отсутствует';
-  if (user.relationship_status === 'married' && user.relationship_partner_id) {
-    const partner = db.prepare('SELECT user_id FROM users WHERE guild_id = ? AND user_id = ?')
-      .get(guildId, user.relationship_partner_id);
-    if (partner) {
-      const partnerMember = member?.guild?.members?.cache?.get(user.relationship_partner_id);
-      marriageWith = partnerMember?.displayName || user.relationship_partner_id;
+  let marriagePartnerAvatarUrl = null;
+  const hideMarriage = settings?.show_relationship === 0 && viewerId && viewerId !== target.id;
+  if (hideMarriage) {
+    marriageWith = '🔒 Скрыто';
+  } else if (user.relationship_status === 'married' && user.relationship_partner_id) {
+    const partnerId = user.relationship_partner_id;
+    const guild = member?.guild;
+
+    let partnerMember = guild?.members?.cache?.get(partnerId) || null;
+    if (!partnerMember && guild?.members?.fetch) {
+      partnerMember = await guild.members.fetch(partnerId).catch(() => null);
     }
+
+    marriageWith = partnerMember?.displayName || partnerId;
+    marriagePartnerAvatarUrl = partnerMember?.displayAvatarURL({ size: 256, extension: 'png' }) || null;
   }
 
   // Место в общем топе (по баллам, как в /топ)
@@ -145,6 +157,7 @@ function collectProfileData(target, member, db, guildId) {
     reputation: user.total_reactions_received || 0,
     statusText: user.status_text || '',
     marriageWith,
+    marriagePartnerAvatarUrl,
     favoritePerson: marriageWith, // Используем партнера как "любимого человека"
     joinDate: user.joined_at
       ? new Date(user.joined_at + 'Z').toLocaleDateString('ru-RU', {
@@ -156,6 +169,7 @@ function collectProfileData(target, member, db, guildId) {
     about: user.personal_note || null,
     clanTag,
     achievements: achievementText,
+    achievementsCount: unlocked.length,
     badges,
     frameColor: COSMETICS[user.equipped_frame]?.color || null,
     bgFrom: COSMETICS[user.equipped_background]?.from || null,
@@ -187,7 +201,7 @@ export default {
       const db = getDb();
 
       // Собираем данные профиля
-      const profileData = collectProfileData(target, member, db, interaction.guildId);
+      const profileData = await collectProfileData(target, member, db, interaction.guildId, interaction.user.id);
 
       const imageBuffer = await generateProfileImage(profileData);
 
@@ -212,6 +226,14 @@ export default {
           .setCustomId('profile_settings')
           .setLabel('⚙ Настроить')
           .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(`profile_achievements:${target.id}`)
+          .setLabel('🏅 Достижения')
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId(`profile_inventory:${target.id}`)
+          .setLabel('🎒 Инвентарь')
+          .setStyle(ButtonStyle.Primary),
         new ButtonBuilder()
           .setCustomId('profile_gender')
           .setLabel('👤 Указать гендер')
@@ -253,7 +275,7 @@ export async function handleProfileButtons(interaction) {
 
 const target = interaction.user;
       const member = interaction.guild.members.cache.get(target.id);
-      const profileData = collectProfileData(target, member, db, interaction.guildId);
+      const profileData = await collectProfileData(target, member, db, interaction.guildId, interaction.user.id);
       const imageBuffer = await generateProfileImage(profileData);
 
       if (!imageBuffer) {
@@ -271,6 +293,117 @@ const target = interaction.user;
       });
 
       await interaction.editReply({ files: [attachment] });
+      return true;
+    }
+
+    if (customId.startsWith('profile_achievements:')) {
+      const targetId = customId.split(':')[1] || interaction.user.id;
+      const member = interaction.guild?.members?.cache?.get(targetId)
+        || await interaction.guild?.members?.fetch(targetId).catch(() => null);
+      const payload = buildAchievementsReply(interaction, {
+        userId: targetId,
+        username: member?.displayName || member?.user?.username || null,
+      });
+      await interaction.reply({
+        ...payload,
+        flags: MessageFlags.Ephemeral,
+      });
+      return true;
+    }
+
+    if (customId.startsWith('profile_inventory:')) {
+      const targetId = customId.split(':')[1] || interaction.user.id;
+      const guildId = interaction.guildId;
+      const guild = interaction.guild;
+      const db = getDb();
+
+      const member = guild?.members?.cache?.get(targetId)
+        || await guild?.members?.fetch(targetId).catch(() => null);
+
+      // 1) Роли (купленные в shop/role-create)
+      const userRoleIds = member?.roles?.cache?.map((r) => r.id) || [];
+      let purchasedRoles = [];
+      try {
+        if (userRoleIds.length > 0) {
+          const ph = userRoleIds.map(() => '?').join(', ');
+          purchasedRoles = db.prepare(`
+            SELECT * FROM custom_roles
+            WHERE creator_id = ? OR discord_role_id IN (${ph})
+          `).all(targetId, ...userRoleIds);
+        } else {
+          purchasedRoles = db.prepare('SELECT * FROM custom_roles WHERE creator_id = ?').all(targetId);
+        }
+      } catch {
+        purchasedRoles = [];
+      }
+
+      const seenRole = new Set();
+      const roleLines = purchasedRoles
+        .filter((r) => {
+          if (!r?.id) return false;
+          if (seenRole.has(r.id)) return false;
+          seenRole.add(r.id);
+          return true;
+        })
+        .slice(0, 12)
+        .map((r) => `<@&${r.discord_role_id}> — ${r.role_name}`)
+        .join('\n');
+
+      // 2) Бусты (покупки в inventory типа boost)
+      const boostRows = db.prepare(`
+        SELECT
+          i.item_id,
+          s.name,
+          i.purchased_at,
+          i.expires_at,
+          s.duration_hours
+        FROM inventory i
+        JOIN shop_items s ON s.item_id = i.item_id
+        WHERE i.user_id = ? AND s.type = 'boost'
+        ORDER BY i.purchased_at DESC
+        LIMIT 12
+      `).all(targetId);
+
+      const boostLines = boostRows.length
+        ? boostRows.map((r) => {
+          const exp = r.expires_at
+            ? `⏱ до ${String(r.expires_at).slice(0, 10)}`
+            : '♾ бессрочно';
+          return `• ${r.name} (${exp})`;
+        }).join('\n')
+        : '—';
+
+      // 3) Косметика (frames/backgrounds)
+      const ownedCosmetics = listOwnedCosmetics(targetId, guildId) || [];
+      const cosmeticLines = ownedCosmetics.length
+        ? ownedCosmetics
+          .slice(0, 12)
+          .map((id) => {
+            const c = COSMETICS[id];
+            if (!c) return `• ${id}`;
+            const icon = c.type === 'background' ? '🧩' : '🖼️';
+            return `• ${icon} ${c.name}`;
+          })
+          .join('\n')
+        : '—';
+
+      const embed = new EmbedBuilder()
+        .setColor(0x33E1C4)
+        .setTitle(`🎒 Инвентарь — ${member?.displayName || 'пользователь'}`)
+        .setFooter({ text: `Holidesu · инвентарь` });
+
+      embed
+        .addFields(
+          { name: '🎭 Купленные роли', value: roleLines || '—', inline: false },
+          { name: '⚡ Купленные бусты', value: boostLines, inline: false },
+          { name: '🎨 Косметика', value: cosmeticLines, inline: false },
+        );
+
+      if (member?.displayAvatarURL) {
+        embed.setThumbnail(member.displayAvatarURL({ size: 128, extension: 'png' }));
+      }
+
+      await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
       return true;
     }
 

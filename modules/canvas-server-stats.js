@@ -74,14 +74,15 @@ function drawPanel(ctx, x, y, w, h, title) {
 }
 
 function drawTopList(ctx, items, x, y, w, h) {
-  // items: [{ name, value }]
+  // items: [{ name, value, avatarImg?: Image }]
   const compact = h <= 160;
-  const fontSize = compact ? 11 : 18;
-  const rowH = compact ? 8 : 20;
+  const fontSize = compact ? 10 : 18;
+  const rowH = compact ? 9 : 20;
+  const avatarR = compact ? 4 : 9;
   ctx.font = `400 ${fontSize}px sans-serif`;
   ctx.fillStyle = C.white;
   ctx.textAlign = 'left';
-  ctx.textBaseline = 'top';
+  ctx.textBaseline = 'middle';
 
   const topOffset = compact ? 18 : 46;
   const maxRows = Math.floor((h - topOffset) / rowH);
@@ -89,16 +90,43 @@ function drawTopList(ctx, items, x, y, w, h) {
 
   for (let i = 0; i < slice.length; i++) {
     const item = slice[i];
+    const hasAvatar = Boolean(item?.avatarImg);
+    const avatarCx = x + 22 + avatarR;
+    const rowTop = y + topOffset + i * rowH;
+    const rowMidY = rowTop + rowH / 2;
+    const avatarCy = rowMidY;
+
     const line = `${i + 1}. ${item.name}`;
     const value = item.value ?? '';
     const left = x + 22;
-    const top = y + topOffset + i * rowH;
-    const maxNameW = Math.max(40, w - 22 - 260);
-    ctx.fillText(trunc(ctx, line, maxNameW), left, top);
+    const top = rowTop;
+
+    if (hasAvatar) {
+      const sx = avatarCx - avatarR;
+      const sy = avatarCy - avatarR;
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(avatarCx, avatarCy, avatarR, 0, Math.PI * 2);
+      ctx.closePath();
+      ctx.clip();
+      ctx.drawImage(item.avatarImg, sx, sy, avatarR * 2, avatarR * 2);
+      ctx.restore();
+
+      ctx.beginPath();
+      ctx.arc(avatarCx, avatarCy, avatarR, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    const valueX = x + w - 22;
+    const textX = hasAvatar ? avatarCx + avatarR + 12 : left;
+    const maxNameW = Math.max(40, valueX - textX - 12);
+    ctx.fillText(trunc(ctx, line, maxNameW), textX, rowMidY);
 
     ctx.fillStyle = C.muted;
     ctx.textAlign = 'right';
-    ctx.fillText(String(value), x + w - 22, top);
+    ctx.fillText(String(value), valueX, rowMidY);
     ctx.fillStyle = C.white;
     ctx.textAlign = 'left';
   }
@@ -176,6 +204,49 @@ export async function generateServerStatsImage(data) {
 
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext('2d');
+
+  // Preload avatar images (so drawTopList can be synchronous).
+  // Не загружаем, если Canvas недоступен (раньше вернёмся null).
+  const lists = [
+    data.overallTop,
+    data.balanceTop,
+    data.xpTop,
+    data.messagesTop,
+    data.voiceTop,
+    data.reputationTop,
+  ];
+  if (loadImage) {
+    try {
+      const urls = new Set();
+      lists
+        .filter(Boolean)
+        .forEach((arr) =>
+          arr.forEach((it) => {
+            if (it?.avatarUrl) urls.add(it.avatarUrl);
+          }),
+        );
+      const cache = new Map();
+      await Promise.all(
+        [...urls].map(async (url) => {
+          try {
+            const img = await loadImage(url);
+            cache.set(url, img);
+          } catch {
+            // ignore broken avatars
+          }
+        }),
+      );
+
+      lists.forEach((arr) => {
+        if (!arr) return;
+        arr.forEach((it) => {
+          if (it?.avatarUrl && cache.has(it.avatarUrl)) it.avatarImg = cache.get(it.avatarUrl);
+        });
+      });
+    } catch {
+      // Ignore preload errors; render names without avatars.
+    }
+  }
 
   // фон
   ctx.fillStyle = 'rgba(0,0,0,0.65)';

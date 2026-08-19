@@ -223,6 +223,7 @@ async function handleCreate(interaction, db) {
     .setDescription(`Клан создан. Лидер <@${interaction.user.id}>\nСписано ${fmtHld(CREATE_COST)}`)
     .setFooter({ text: 'Holidesu · clan' });
 
+  unlockAchievement(interaction.user.id, guildId, 'clan_founder');
   await interaction.reply({ embeds: [embed] });
 }
 

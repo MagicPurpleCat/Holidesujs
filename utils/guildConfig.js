@@ -103,7 +103,7 @@ export function isFeatureEnabled(guildId, feature) {
 }
 
 export function commandFeatureKey(commandName) {
-  const critical = new Set(['setup', 'панель', 'verify', 'help', 'помощь', 'settings', 'логи', 'фичи']);
+  const critical = new Set(['setup', 'панель', 'verify', 'help', 'помощь', 'settings', 'логи', 'фичи', 'welcome-preview', 'self-roles']);
   if (critical.has(commandName)) return null;
 
   const map = {

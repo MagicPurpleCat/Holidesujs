@@ -2,8 +2,12 @@
 import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { getDb } from '../database.js';
 
-// Хранилище дубликатов сообщений: Map<userId, { content, count, lastWarnAt }>
+// Хранилище дубликатов сообщений: Map<guildId:userId, { content, count, lastWarnAt }>
 const duplicateTracker = new Map();
+
+function trackerKey(guildId, userId) {
+  return `${guildId}:${userId}`;
+}
 
 // Время сброса счётчика (5 секунд)
 const RESET_INTERVAL = 5_000;
@@ -32,17 +36,19 @@ export async function checkAntiSpam(message) {
     if (message.author.bot || !message.guild) return false;
 
     const userId = message.author.id;
+    const guildId = message.guild.id;
+    const key = trackerKey(guildId, userId);
     const content = message.content.toLowerCase().trim();
 
     // Игнорируем короткие сообщения (меньше 5 символов)
     if (content.length < 5) return false;
 
     const now = Date.now();
-    const tracker = duplicateTracker.get(userId);
+    const tracker = duplicateTracker.get(key);
 
     // Если нет трекера или прошло больше RESET_INTERVAL — сбрасываем
     if (!tracker || (now - tracker.lastWarnAt) > RESET_INTERVAL) {
-      duplicateTracker.set(userId, { content, count: 1, lastWarnAt: now });
+      duplicateTracker.set(key, { content, count: 1, lastWarnAt: now });
       return false;
     }
 
@@ -79,12 +85,12 @@ export async function checkAntiSpam(message) {
         } catch { /* ЛС закрыты */ }
 
         // Сбрасываем счётчик
-        duplicateTracker.delete(userId);
+        duplicateTracker.delete(key);
         return true; // сообщение удалено
       }
     } else {
       // Новое сообщение — сбрасываем
-      duplicateTracker.set(userId, { content, count: 1, lastWarnAt: now });
+      duplicateTracker.set(key, { content, count: 1, lastWarnAt: now });
     }
 
     return false;

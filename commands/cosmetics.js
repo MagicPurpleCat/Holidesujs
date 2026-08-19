@@ -5,6 +5,7 @@ import {
   ownsCosmetic,
   grantCosmetic,
   listOwnedCosmetics,
+  unlockAchievement,
 } from '../modules/progress.js';
 import { brandEmbed, COLOR, fmtHld, guildFooter, replyFail, replyDone } from '../utils/ui.js';
 
@@ -88,6 +89,7 @@ async function runCosmetics(interaction) {
       return replyFail(interaction, `Нужно ${fmtHld(item.price)}.`);
     }
     grantCosmetic(userId, guildId, id);
+    unlockAchievement(userId, guildId, 'cosmetics_buy');
     return replyDone(
       interaction,
       `**${item.name}** · ${fmtHld(item.price)}\nНадень: \`/cosmetics надеть id:${id}\``,

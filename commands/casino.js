@@ -331,6 +331,42 @@ function bjKey(guildId, userId) {
   return `bj:${guildId}:${userId}`;
 }
 
+/** Возвращает ставку, если раздача истекла без завершения. */
+export function sweepExpiredBlackjackStates() {
+  const db = getDb();
+  const now = Date.now();
+  const rows = db.prepare(`
+    SELECT key, payload FROM ephemeral_state
+    WHERE key LIKE 'bj:%' AND expires_at <= ?
+  `).all(now);
+
+  let refunded = 0;
+  for (const row of rows) {
+    try {
+      const state = JSON.parse(row.payload || '{}');
+      const bet = Number(state.bet) || 0;
+      if (bet > 0 && state.userId && state.guildId) {
+        addCoins(state.userId, bet, state.guildId);
+        refunded += 1;
+      }
+    } catch {
+      /* ignore malformed */
+    }
+    deleteEphemeral(row.key);
+  }
+  return refunded;
+}
+
+let bjSweepStarted = false;
+export function startBlackjackSweepLoop() {
+  if (bjSweepStarted) return;
+  bjSweepStarted = true;
+  sweepExpiredBlackjackStates();
+  setInterval(() => {
+    sweepExpiredBlackjackStates();
+  }, 30_000);
+}
+
 function drawCard() {
   return {
     rank: RANKS[Math.floor(Math.random() * RANKS.length)],
@@ -476,7 +512,11 @@ export async function handleBlackjackButton(interaction) {
   if (interaction.customId !== 'bj_hit' && interaction.customId !== 'bj_stand') return false;
   const state = getEphemeral(bjKey(interaction.guildId, interaction.user.id));
   if (!state) {
-    await interaction.reply({ content: '❌ Раздача не найдена или истекла.', flags: MessageFlags.Ephemeral });
+    sweepExpiredBlackjackStates();
+    await interaction.reply({
+      content: '❌ Раздача истекла. Ставка возвращена на баланс, если ещё не была.',
+      flags: MessageFlags.Ephemeral,
+    });
     return true;
   }
 

@@ -11,6 +11,7 @@ import path from 'path';
 import { createRequire } from 'module';
 import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
+import { ensureNodeVersion } from './utils/ensureNode.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '.');
@@ -24,6 +25,16 @@ const COLOR_RED = '\x1b[31m';
 
 function log(msg, color = COLOR_CYAN) {
   console.log(`${color}[START]${COLOR_RESET} ${msg}`);
+}
+
+function logLevel(level, msg) {
+  const colors = {
+    cyan: COLOR_CYAN,
+    green: COLOR_GREEN,
+    yellow: COLOR_YELLOW,
+    red: COLOR_RED,
+  };
+  log(msg, colors[level] || COLOR_CYAN);
 }
 
 function canLoad(name) {
@@ -61,12 +72,13 @@ function ensureModules() {
 
   if (!canLoad('node:sqlite')) {
     log(
-      `Нужен Node.js ${engines} со встроенным node:sqlite. Сейчас: ${process.versions.node}`,
+      `Нужен Node.js ${engines} со встроенным node:sqlite. Сейчас: ${process.versions.node}. `
+      + 'Перезапусти npm start — автообновление Node должно было сработать раньше.',
       COLOR_RED,
     );
     process.exit(1);
   }
-  log(`Node.js ${process.versions.node}, node:sqlite — ок`, COLOR_GREEN);
+  log(`node:sqlite — ок`, COLOR_GREEN);
 
   let missingRequired = required.filter((name) => !canLoad(name));
   let missingOptional = optional.filter((name) => !canLoad(name));
@@ -164,6 +176,15 @@ async function main() {
   console.log('═════════════════════════════════════════════════');
   console.log('  Holidesu Bot');
   console.log('═════════════════════════════════════════════════');
+
+  const startScript = path.join(projectRoot, 'start.js');
+  const canContinue = ensureNodeVersion({
+    projectRoot,
+    startScript,
+    argv: process.argv.slice(2),
+    log: logLevel,
+  });
+  if (!canContinue) return;
 
   ensureModules();
   ensureEnvFile();
