@@ -10,6 +10,7 @@ import { EmbedBuilder,
 import { getDb } from '../database.js';
 import { getGuildConfig, FALLBACK_TRIGGER_CHANNEL_ID } from '../utils/guildConfig.js';
 import { publishRoomPanel, removeRoomPanelMessage } from '../commands/room-settings.js';
+import { trackRoomCreated } from './achievementsTracker.js';
 
 // ══════════════════════════════════════════════════════════════════
 // АВТО-СОЗДАНИЕ ГОЛОСОВЫХ КАНАЛОВ (БЕЗ ТЕКСТОВОГО КАНАЛА)
@@ -167,6 +168,8 @@ export async function createVoiceRoom(member, triggerChannel) {
       INSERT INTO user_voice_channels (owner_id, voice_channel_id)
       VALUES (?, ?)
     `).run(member.id, voiceChannel.id);
+
+    trackRoomCreated(member.id, guild.id);
 
     const room = db.prepare('SELECT * FROM user_voice_channels WHERE voice_channel_id = ?').get(voiceChannel.id);
 

@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, EmbedBuilder, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits } from 'discord.js';
 import { getDb, ensureUser, removeCoins, runInTransaction, setEphemeral, getEphemeral, deleteEphemeral } from '../database.js';
 import { unlockAchievement } from '../modules/progress.js';
 import { COLOR, fmtHld, fmtNum } from '../utils/ui.js';
@@ -459,6 +459,26 @@ async function handleClanShop(interaction, db) {
       flags: MessageFlags.Ephemeral,
     });
   }
+
+  // До списания: бот должен уметь создать роль и выдать её
+  if (item === 'role') {
+    const me = interaction.guild.members.me
+      || await interaction.guild.members.fetchMe().catch(() => null);
+    if (!me?.permissions?.has(PermissionFlagsBits.ManageRoles)) {
+      return interaction.reply({
+        content: '❌ У бота нет права **Manage Roles** — роль создать нельзя. Деньги не списаны.',
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+    const highest = me.roles.highest;
+    if (!highest || highest.position <= 0) {
+      return interaction.reply({
+        content: '❌ Роль бота слишком низко в иерархии — создать клановую роль нельзя. Деньги не списаны.',
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+  }
+
   const spec = CLAN_SHOP[item];
   const pay = db.prepare(
     'UPDATE clans SET bank_balance = bank_balance - ? WHERE clan_id = ? AND bank_balance >= ?',

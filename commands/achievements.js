@@ -1,5 +1,5 @@
 // ============================================================================
-// Команда: /достижения — каталог 1000 достижений с фильтром и страницами
+// Команда: /достижения — каталог тематических достижений
 // ============================================================================
 
 import {
@@ -19,12 +19,12 @@ import {
   listAchievementKeys,
   listAchievements,
 } from '../modules/progress.js';
+import { getAchievementProgress } from '../modules/achievementsTracker.js';
 import { COLOR, guildFooter } from '../utils/ui.js';
 
-const PAGE_SIZE = 15;
+const PAGE_SIZE = 10;
 
 export function parseAchievementsCustomId(customId) {
-  // ach_view:<userId>:<category>:<page>
   const parts = String(customId || '').split(':');
   if (parts[0] !== 'ach_view') return null;
   return {
@@ -69,29 +69,24 @@ function buildAchievementsComponents(targetId, category, page, totalPages) {
   ];
 }
 
-function formatThreshold(category, threshold) {
-  const labels = {
-    messages: `${threshold.toLocaleString('ru-RU')} сообщ.`,
-    voice: `${threshold.toLocaleString('ru-RU')} мин войса`,
-    balance: `${threshold.toLocaleString('ru-RU')} ⚡HLD`,
-    xp: `${threshold.toLocaleString('ru-RU')} XP`,
-    level: `${threshold} ур.`,
-    reputation: `${threshold.toLocaleString('ru-RU')} реп.`,
-    streak: `${threshold} дн. подряд`,
-    overall: `${threshold.toLocaleString('ru-RU')} рейтинга`,
-    quests: `${threshold} квестов`,
-  };
-  return labels[category] || String(threshold);
-}
-
-function buildAchievementsLines(keys, unlockedSet) {
+function buildAchievementsLines(keys, unlockedSet, guildId, userId) {
   return keys.map((key) => {
     const a = ACHIEVEMENTS[key];
-    const mark = unlockedSet.has(key) ? '✅' : '⬜';
-    const hint = !unlockedSet.has(key) && a?.kind === 'tier' && a?.threshold
-      ? ` · _${formatThreshold(a.category, a.threshold)}_`
-      : '';
-    return `${mark} ${a?.emoji || '🏅'} ${a?.name || key}${hint}`;
+    const unlocked = unlockedSet.has(key);
+    const mark = unlocked ? '✅' : '⬜';
+    const target = a?.target || 1;
+    let progressHint = '';
+    if (!unlocked && target > 1) {
+      const prog = getAchievementProgress(userId, guildId, key);
+      progressHint = ` · _${Math.min(prog.progress, target)}/${target}_`;
+    } else if (!unlocked && a?.description) {
+      progressHint = ` · _${a.description}_`;
+    }
+    // Короткие описания в списке — обрезаем
+    if (progressHint.length > 90) {
+      progressHint = `${progressHint.slice(0, 87)}…_`;
+    }
+    return `${mark} ${a?.emoji || '🏅'} **${a?.name || key}**${progressHint}`;
   });
 }
 
@@ -100,37 +95,53 @@ export function buildAchievementsEmbed(interaction, {
   username,
   category = 'all',
   page = 0,
+  search = '',
 } = {}) {
   const guildId = interaction.guildId;
   const targetId = userId || interaction.user.id;
   const unlockedRows = listAchievements(targetId, guildId);
-  const unlockedKeys = new Set((unlockedRows || []).map((r) => r.key));
-  const unlockedCount = unlockedRows?.length || 0;
+  const unlockedKeys = new Set((unlockedRows || []).map((r) => r.key).filter((k) => ACHIEVEMENTS[k]));
+  const unlockedCount = unlockedKeys.size;
 
-  const allKeys = listAchievementKeys(category);
+  const q = String(search || '').trim().toLowerCase();
+  let allKeys = listAchievementKeys(category);
+  if (q) {
+    allKeys = allKeys.filter((key) => {
+      const a = ACHIEVEMENTS[key];
+      if (!a) return false;
+      return (
+        key.toLowerCase().includes(q)
+        || String(a.name || '').toLowerCase().includes(q)
+        || String(a.description || '').toLowerCase().includes(q)
+      );
+    });
+  }
+
   const totalPages = Math.max(1, Math.ceil(allKeys.length / PAGE_SIZE));
   const safePage = Math.min(Math.max(0, page), totalPages - 1);
   const slice = allKeys.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
-  const lines = buildAchievementsLines(slice, unlockedKeys);
+  const lines = buildAchievementsLines(slice, unlockedKeys, guildId, targetId);
 
   const catMeta = ACHIEVEMENT_CATEGORIES[category] || ACHIEVEMENT_CATEGORIES.all;
+  const searchLine = q ? `\nПоиск: **${search.trim()}** · найдено **${allKeys.length}**` : '';
   const embed = new EmbedBuilder()
     .setColor(COLOR.accent)
     .setTitle(`🏅 Достижения${username ? ` — ${username}` : ''}`)
     .setDescription(
       `Открыто: **${unlockedCount}/${ACHIEVEMENT_TOTAL}**\n` +
-      `Категория: **${catMeta.emoji} ${catMeta.label}** · страница **${safePage + 1}/${totalPages}**`,
+      `Категория: **${catMeta.emoji} ${catMeta.label}** · страница **${safePage + 1}/${totalPages}**` +
+      searchLine,
     )
     .addFields({
       name: 'Список',
-      value: lines.length ? lines.join('\n') : 'В этой категории пока пусто.',
+      value: lines.length ? lines.join('\n').slice(0, 1020) : (q ? 'Ничего не найдено по запросу.' : 'В этой категории пока пусто.'),
     })
     .setFooter({
       text: guildFooter(interaction, `${unlockedCount}/${ACHIEVEMENT_TOTAL} · ${catMeta.label}`),
     })
     .setTimestamp();
 
-  embed.__achMeta = { category, page: safePage, totalPages, targetId };
+  embed.__achMeta = { category, page: safePage, totalPages, targetId, search: q };
   return embed;
 }
 
@@ -177,9 +188,8 @@ export async function handleAchievementsInteraction(interaction) {
   }
 
   if (customId.startsWith('ach_cat:')) {
-    const [, targetId, pageStr] = customId.split(':');
+    const [, targetId] = customId.split(':');
     const category = interaction.values?.[0] || 'all';
-    const page = Math.max(0, Number(pageStr) || 0);
 
     const member = interaction.guild?.members?.cache?.get(targetId)
       || await interaction.guild?.members?.fetch(targetId).catch(() => null);
@@ -201,7 +211,13 @@ export async function handleAchievementsInteraction(interaction) {
 export default {
   data: new SlashCommandBuilder()
     .setName('достижения')
-    .setDescription('Каталог из 1000 достижений Holidesu'),
+    .setDescription(`Каталог достижений Holidesu (${ACHIEVEMENT_TOTAL} шт.)`)
+    .addStringOption((opt) =>
+      opt
+        .setName('поиск')
+        .setDescription('Найти по названию или описанию')
+        .setRequired(false)
+    ),
 
   async execute(interaction) {
     if (!interaction.guild) {
@@ -213,7 +229,8 @@ export default {
 
     await interaction.deferReply();
 
-    const payload = buildAchievementsReply(interaction, {});
+    const search = interaction.options.getString('поиск') || '';
+    const payload = buildAchievementsReply(interaction, { search });
     return interaction.editReply(payload);
   },
 };

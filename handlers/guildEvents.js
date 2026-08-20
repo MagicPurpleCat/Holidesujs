@@ -1,6 +1,14 @@
 import { Events } from 'discord.js';
 import { ensureUser, addCoins, addXp, getDb } from '../database.js';
 import { bumpQuest, checkEconomyAchievements, getFarmMultiplier } from '../modules/progress.js';
+import {
+  trackMessageAchievements,
+  trackReactionAdd,
+  trackVoiceStateAchievements,
+  trackPresenceUpdate,
+  checkLoyaltyForMember,
+  startAchievementLoops,
+} from '../modules/achievementsTracker.js';
 import { getGuildConfig, getTriggerChannelId, initGuildConfig, suggestScaleOptimizations, clearGuildConfigCache } from '../utils/guildConfig.js';
 import { logInfo, logErr } from '../utils/botLog.js';
 import { checkLevelMilestones } from '../commands/rank.js';
@@ -11,6 +19,7 @@ import { updateActivityAndCheckRank } from '../modules/activityRoles.js';
 import { checkAntiSpam } from '../modules/antiSpam.js';
 import { logEvent, clearLogConfigCache } from '../modules/logger.js';
 import { initVoicePanel } from '../modules/voicePanel.js';
+import { isPrimaryGuild } from '../utils/singleGuild.js';
 
 export const voiceFarming = new Map();
 const messageCooldowns = new Map();
@@ -18,15 +27,28 @@ const MESSAGE_XP_COOLDOWN = 5_000;
 const MESSAGE_XP_MIN = 15;
 const MESSAGE_XP_MAX = 25;
 const FARM_RATE = parseInt(process.env.FARM_RATE, 10) || 10;
-const ANTI_AFK_FULL_RATE_MINUTES = 30;
+/** Полный FARM_RATE только первые N минут после входа/unmute; дальше штраф за AFK */
+const ANTI_AFK_FULL_RATE_MINUTES = 20;
 const ANTI_AFK_REDUCED_MULTIPLIER = 0.1;
 const MESSAGE_COOLDOWN_MAX = 20_000;
+
+function stampVoiceFarmActivity(guildId, userId) {
+  if (!guildId || !userId) return;
+  const db = getDb();
+  ensureUser(userId, guildId);
+  db.prepare(
+    "UPDATE users SET last_voice_reset_time = datetime('now') WHERE guild_id = ? AND user_id = ?",
+  ).run(guildId, userId);
+}
 
 function isEligibleForFarm(member) {
   if (!member) return false;
   if (!member.voice || !member.voice.channel) return false;
   if (member.voice.selfDeaf || member.voice.selfMute) return false;
   if (!member.voice.channel.members || member.voice.channel.members.size < 2) return false;
+  // хотя бы один другой живой (не бот) в канале
+  const humans = [...member.voice.channel.members.values()].filter((m) => !m.user?.bot);
+  if (humans.length < 2) return false;
   return true;
 }
 
@@ -41,6 +63,11 @@ export function registerGuildEvents(client, shardId) {
   client.on(Events.GuildCreate, async (guild) => {
     try {
       if (!guild) return;
+      if (!isPrimaryGuild(guild.id)) {
+        logErr(shardId, 'GUILD', `Лишний сервер ${guild.name} (${guild.id}) — выхожу (односерверный режим)`);
+        await guild.leave().catch((err) => logErr(shardId, 'GUILD', err.message));
+        return;
+      }
       initGuildConfig(guild.id);
       if (guild.roles) await guild.roles.fetch().catch(() => {});
       if (guild.channels) await guild.channels.fetch().catch(() => {});
@@ -65,13 +92,16 @@ export function registerGuildEvents(client, shardId) {
   client.on(Events.MessageCreate, async (message) => {
     try {
       if (!message || message.author?.bot || !message.guild) return;
+      if (!isPrimaryGuild(message.guild.id)) return;
+
+      const antiSpamResult = await checkAntiSpam(message);
+      if (antiSpamResult) return;
+
+      await trackMessageAchievements(message).catch((e) => logErr(shardId, 'ACH', e.message));
 
       const gConfig = getGuildConfig(message.guild.id);
       const features = gConfig?.features || {};
       if (!features.leveling && !features.economy) return;
-
-      const antiSpamResult = await checkAntiSpam(message);
-      if (antiSpamResult) return;
 
       const now = Date.now();
       pruneMessageCooldowns(now);
@@ -125,9 +155,13 @@ export function registerGuildEvents(client, shardId) {
       if (reaction.partial) await reaction.fetch().catch(() => null);
       const message = reaction.message;
       if (!message?.guild || message.author?.bot) return;
+      if (!isPrimaryGuild(message.guild.id)) return;
       if (message.author.id === user.id) return;
       if (message.partial) await message.fetch().catch(() => null);
       if (!message.author?.id) return;
+      if (delta > 0) {
+        trackReactionAdd(reaction, user);
+      }
       if (!getGuildConfig(message.guild.id).features?.reputation) return;
       ensureUser(message.author.id, message.guild.id);
       getDb().prepare(
@@ -145,6 +179,9 @@ export function registerGuildEvents(client, shardId) {
   client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
     try {
       if (!newState?.guild) return;
+      if (!isPrimaryGuild(newState.guild.id)) return;
+
+      trackVoiceStateAchievements(oldState, newState);
 
       const guildConfig = getGuildConfig(newState.guild.id);
       const features = guildConfig?.features || {};
@@ -194,10 +231,19 @@ export function registerGuildEvents(client, shardId) {
         }
 
         if (newState.channelId) {
-          const eligible = isEligibleForFarm(newState.member);
-          if (eligible) {
-            guildFarmers.set(newState.member.id, {
-              member: newState.member,
+          const member = newState.member;
+          const eligible = isEligibleForFarm(member);
+          if (eligible && member) {
+            const wasFarming = guildFarmers.has(member.id);
+            const wasMuted = Boolean(oldState?.selfMute || oldState?.selfDeaf);
+            const nowMuted = Boolean(newState.selfMute || newState.selfDeaf);
+            const unmuted = wasMuted && !nowMuted;
+            const joinedOrSwitched = String(oldState?.channelId ?? '') !== String(newState.channelId);
+            if (!wasFarming || unmuted || joinedOrSwitched) {
+              stampVoiceFarmActivity(guildId, member.id);
+            }
+            guildFarmers.set(member.id, {
+              member,
               channelId: newState.channelId,
               startedAt: Date.now(),
             });
@@ -214,7 +260,9 @@ export function registerGuildEvents(client, shardId) {
   client.on(Events.GuildMemberAdd, async (member) => {
     try {
       if (!member?.guild) return;
+      if (!isPrimaryGuild(member.guild.id)) return;
       await handleGuildMemberAdd(member).catch(() => {});
+      checkLoyaltyForMember(member);
 
       const gConfig = getGuildConfig(member.guild.id);
       if (gConfig?.features?.welcomeNPC) {
@@ -224,6 +272,18 @@ export function registerGuildEvents(client, shardId) {
       logErr(shardId, 'MEMBER_ADD', `Ошибка: ${err.message}`);
     }
   });
+
+  client.on(Events.PresenceUpdate, (oldPresence, newPresence) => {
+    try {
+      const guildId = newPresence?.guild?.id || oldPresence?.guild?.id;
+      if (guildId && !isPrimaryGuild(guildId)) return;
+      trackPresenceUpdate(oldPresence, newPresence);
+    } catch (err) {
+      logErr(shardId, 'ACH_PRESENCE', err.message);
+    }
+  });
+
+  startAchievementLoops(client);
 
   registerAuditAndLogEvents(client, shardId);
 }
@@ -531,6 +591,7 @@ export async function restoreVoiceFarmSessions(client) {
   let restored = 0;
 
   for (const guild of client.guilds.cache.values()) {
+    if (!isPrimaryGuild(guild.id)) continue;
     const features = getGuildConfig(guild.id)?.features || {};
     if (!features.voiceFarming) continue;
 
@@ -541,6 +602,7 @@ export async function restoreVoiceFarmSessions(client) {
     for (const [, vs] of guild.voiceStates.cache) {
       if (!vs.channelId || !vs.member) continue;
       if (!isEligibleForFarm(vs.member)) continue;
+      stampVoiceFarmActivity(guild.id, vs.member.id);
       farmers.set(vs.member.id, {
         member: vs.member,
         channelId: vs.channelId,
@@ -572,16 +634,13 @@ export function startVoiceFarmLoop() {
             const user = db.prepare('SELECT last_voice_reset_time FROM users WHERE guild_id = ? AND user_id = ?').get(guildId, userId);
             let effectiveRate = Math.max(1, Math.round(FARM_RATE * getFarmMultiplier(member)));
 
+            // Анти-AFK: last_voice_reset_time ставится только при входе/unmute (не каждую минуту)
             if (user?.last_voice_reset_time) {
               const lastReset = new Date(user.last_voice_reset_time + 'Z').getTime();
               const minutesSinceReset = (Date.now() - lastReset) / 60_000;
               if (minutesSinceReset > ANTI_AFK_FULL_RATE_MINUTES) {
                 effectiveRate = Math.max(1, Math.floor(effectiveRate * ANTI_AFK_REDUCED_MULTIPLIER));
               }
-            }
-
-            if (!member.voice?.selfDeaf && !member.voice?.selfMute) {
-              db.prepare("UPDATE users SET last_voice_reset_time = datetime('now') WHERE guild_id = ? AND user_id = ?").run(guildId, userId);
             }
 
             addCoins(userId, effectiveRate, guildId);

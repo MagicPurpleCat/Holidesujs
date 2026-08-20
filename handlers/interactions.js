@@ -2,6 +2,7 @@ import { Events, MessageFlags } from 'discord.js';
 import { getDb } from '../database.js';
 import { getGuildConfig, commandFeatureKey } from '../utils/guildConfig.js';
 import { logErr } from '../utils/botLog.js';
+import { isPrimaryGuild } from '../utils/singleGuild.js';
 import { handleAchievementsInteraction } from '../commands/achievements.js';
 import { handleTopSelect } from '../commands/top.js';
 import { handleProfileButtons, handleProfileModals, handleProfileSelectMenus } from '../commands/profile.js';
@@ -57,6 +58,16 @@ import { reportInteractionError, safeInteractionFallback } from '../utils/errorH
 export function createInteractionHandler(shardId, client) {
   return async function handleInteraction(interaction) {
     if (!interaction) return;
+
+    if (interaction.guild?.id && !isPrimaryGuild(interaction.guild.id)) {
+      if (interaction.isRepliable?.() && !interaction.replied && !interaction.deferred) {
+        await interaction.reply({
+          content: '❌ Этот бот обслуживает только основной сервер.',
+          flags: MessageFlags.Ephemeral,
+        }).catch(() => {});
+      }
+      return;
+    }
 
     let guildConfig = null;
     if (interaction.guild?.id) {
@@ -245,7 +256,7 @@ export function createInteractionHandler(shardId, client) {
           return;
         }
 
-        if (customId.startsWith('ap_') || customId.startsWith('admin_')) {
+        if (customId.startsWith('ap_') || customId.startsWith('admin_') || customId.startsWith('ap:')) {
           const handled = await handleAdminPanelButtons(interaction).catch(() => false);
           if (handled !== false) return;
         }
@@ -291,6 +302,12 @@ export function createInteractionHandler(shardId, client) {
         if (customId === 'ap_delete_modal') { await handleDeleteUserModal(interaction).catch(() => {}); return; }
         if (customId === 'ap_unverify_modal') { await handleUnverifyModal(interaction).catch(() => {}); return; }
         if (customId === 'ap_give_verify_modal') { await handleGiveVerifyModal(interaction).catch(() => {}); return; }
+
+        if (customId.startsWith('ap:modal:')) {
+          const { handleAdminPanelModal } = await import('../commands/admin_panel.js');
+          await handleAdminPanelModal(interaction).catch(() => {});
+          return;
+        }
 
         if ([
           'ap_add_balance_modal',
@@ -346,8 +363,9 @@ export function createInteractionHandler(shardId, client) {
           await handleSaleSelect(interaction).catch(() => {});
           return;
         }
-        if (customId === 'ap_revoke_select') {
+        if (customId === 'ap_revoke_select' || customId === 'ap:revoke_select' || customId === 'ap:feature_select' || customId.startsWith('ap:grant_level:')) {
           await handleAdminPanelButtons(interaction).catch(() => {});
+          return;
         }
         return;
       }
@@ -356,6 +374,10 @@ export function createInteractionHandler(shardId, client) {
         const selectId = interaction.customId || '';
         if (selectId.startsWith('room_user_')) {
           await handleRoomUserSelect(interaction).catch((e) => logErr(shardId, 'ROOM_SETTINGS', e.message));
+          return;
+        }
+        if (selectId.startsWith('ap:user:')) {
+          await handleAdminPanelButtons(interaction).catch((e) => logErr(shardId, 'ADMIN', e.message));
         }
       }
     } catch (error) {

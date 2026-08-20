@@ -44,7 +44,7 @@ import {
   TextInputStyle,
   UserSelectMenuBuilder,
 } from 'discord.js';
-import { getDb } from '../database.js';
+import { getDb, setEphemeral, getEphemeral, deleteEphemeral } from '../database.js';
 import { triggerChannelMention } from '../utils/guildConfig.js';
 
 const ROOM_ACTIONS = 'slot_add|slot_remove|add_member|invite|toggle_lock|toggle_hide|settings|delete|limit|rename|kick|transfer|bitrate|toggle_speak';
@@ -123,6 +123,18 @@ function createSession(guildId, voiceChannelId, sessionData) {
     cooldownTimer: null,
   });
 
+  setEphemeral(
+    `room_session:${key}`,
+    {
+      messageId: sessionData.messageId,
+      channelId: sessionData.channelId,
+      ownerId: sessionData.ownerId,
+      voiceChannelId,
+      roomDbId: sessionData.roomDbId,
+    },
+    SESSION_TTL_MS,
+  );
+
   return sessionCache.get(key);
 }
 
@@ -136,13 +148,17 @@ function createSession(guildId, voiceChannelId, sessionData) {
 function cleanupSession(guildId, voiceChannelId) {
   const key = `${guildId}:${voiceChannelId}`;
   const session = sessionCache.get(key);
-  if (!session) return;
+  if (!session) {
+    deleteEphemeral(`room_session:${key}`);
+    return;
+  }
 
   // Очищаем все таймеры
   if (session.timeoutTimer) clearTimeout(session.timeoutTimer);
   if (session.cooldownTimer) clearTimeout(session.cooldownTimer);
 
   sessionCache.delete(key);
+  deleteEphemeral(`room_session:${key}`);
   console.log(`[ROOM-SETTINGS] Сессия очищена: ${key}`);
 }
 
@@ -164,6 +180,18 @@ function refreshSessionTTL(key) {
       key.split(':')[1],
     );
   }, SESSION_TTL_MS);
+
+  setEphemeral(
+    `room_session:${key}`,
+    {
+      messageId: session.messageId,
+      channelId: session.channelId,
+      ownerId: session.ownerId,
+      voiceChannelId: session.voiceChannelId,
+      roomDbId: session.roomDbId,
+    },
+    SESSION_TTL_MS,
+  );
 }
 
 /**
@@ -220,7 +248,18 @@ function releaseProcessingLock(key) {
  */
 function findSession(guildId, voiceChannelId) {
   const key = `${guildId}:${voiceChannelId}`;
-  return sessionCache.get(key) || null;
+  const cached = sessionCache.get(key);
+  if (cached) return cached;
+
+  const saved = getEphemeral(`room_session:${key}`);
+  if (!saved?.messageId) return null;
+
+  return createSession(guildId, voiceChannelId, {
+    messageId: saved.messageId,
+    channelId: saved.channelId,
+    ownerId: saved.ownerId,
+    roomDbId: saved.roomDbId,
+  });
 }
 
 // ══════════════════════════════════════════════════════════════════

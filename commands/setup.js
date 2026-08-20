@@ -30,13 +30,17 @@ import {
   ActionRowBuilder,
   StringSelectMenuBuilder,
   ChannelSelectMenuBuilder,
+  RoleSelectMenuBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   ChannelType,
   EmbedBuilder,
   MessageFlags,
   PermissionFlagsBits,
 } from 'discord.js';
-import { getDb } from '../database.js';
+import { getDb, setEphemeral, getEphemeral, deleteEphemeral } from '../database.js';
 import { clearGuildConfigCache } from '../utils/guildConfig.js';
+import { isPrimaryGuild } from '../utils/singleGuild.js';
 
 // ══════════════════════════════════════════════════════════════════
 // КОНСТАНТЫ
@@ -126,6 +130,8 @@ this.selectedRoles = [];
       trigger: null,
       voice_category: null,
       welcome: null,
+      ticket_category: null,
+      season_role: null,
     };
     this.step = 1;
     this.message = null;
@@ -159,6 +165,22 @@ this.selectedRoles = [];
   destroy() {
     if (this.timeout) clearTimeout(this.timeout);
     activeWizards.delete(`${this.guildId}:${this.userId}`);
+    deleteEphemeral(`setup:${this.guildId}:${this.userId}`);
+  }
+
+  /** Persist across restarts (без message/timeout) */
+  persist() {
+    setEphemeral(
+      `setup:${this.guildId}:${this.userId}`,
+      {
+        ownerId: this.ownerId,
+        note: this.note,
+        selectedRoles: this.selectedRoles,
+        channels: this.channels,
+        step: this.step,
+      },
+      TIMEOUT_MS,
+    );
   }
 
   /** Проверить, что взаимодействие принадлежит текущей сессии */
@@ -178,7 +200,21 @@ this.selectedRoles = [];
  * @returns {SetupWizard|null}
  */
 function getWizard(guildId, userId) {
-  return activeWizards.get(`${guildId}:${userId}`) || null;
+  const key = `${guildId}:${userId}`;
+  const cached = activeWizards.get(key);
+  if (cached) return cached;
+
+  const saved = getEphemeral(`setup:${guildId}:${userId}`);
+  if (!saved) return null;
+
+  const wizard = new SetupWizard(guildId, userId);
+  wizard.ownerId = saved.ownerId || null;
+  wizard.note = saved.note || '';
+  wizard.selectedRoles = Array.isArray(saved.selectedRoles) ? saved.selectedRoles : [];
+  wizard.channels = { ...wizard.channels, ...(saved.channels || {}) };
+  wizard.step = saved.step || 1;
+  activeWizards.set(key, wizard);
+  return wizard;
 }
 
 /**
@@ -350,12 +386,14 @@ async function stepSelectChannel(interaction, wizard, channelKey, label, embedTi
     trigger: 7,
     voice_category: 8,
     welcome: 9,
+    ticket_category: 10,
   };
   wizard.step = stepMap[channelKey] || 3;
 
   const typeMap = {
     trigger: [ChannelType.GuildVoice],
     voice_category: [ChannelType.GuildCategory],
+    ticket_category: [ChannelType.GuildCategory],
     welcome: [ChannelType.GuildText, ChannelType.GuildAnnouncement],
     voice_panel: [ChannelType.GuildText, ChannelType.GuildAnnouncement],
   };
@@ -372,7 +410,17 @@ async function stepSelectChannel(interaction, wizard, channelKey, label, embedTi
     .setMinValues(1)
     .setMaxValues(1);
 
-  const row = new ActionRowBuilder().addComponents(channelSelect);
+  const components = [new ActionRowBuilder().addComponents(channelSelect)];
+  if (channelKey === 'ticket_category') {
+    components.push(
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId('setup_skip_ticket')
+          .setLabel('Пропустить')
+          .setStyle(ButtonStyle.Secondary),
+      ),
+    );
+  }
 
   const progressFields = [
     { name: '📋 Канал логов', value: wizard.channels.log ? `<#${wizard.channels.log}>` : '❌ Не выбран', inline: true },
@@ -382,6 +430,7 @@ async function stepSelectChannel(interaction, wizard, channelKey, label, embedTi
     { name: '➕ Канал создания комнат', value: wizard.channels.trigger ? `<#${wizard.channels.trigger}>` : '❌ Не выбран', inline: true },
     { name: '📁 Категория комнат', value: wizard.channels.voice_category ? `<#${wizard.channels.voice_category}>` : '❌ Не выбрана', inline: true },
     { name: '👋 Канал приветствий', value: wizard.channels.welcome ? `<#${wizard.channels.welcome}>` : '❌ Не выбран', inline: true },
+    { name: '🎫 Категория тикетов', value: wizard.channels.ticket_category ? `<#${wizard.channels.ticket_category}>` : '— опционально', inline: true },
   ];
 
   const embed = new EmbedBuilder()
@@ -389,12 +438,45 @@ async function stepSelectChannel(interaction, wizard, channelKey, label, embedTi
     .setTitle(embedTitle)
     .setDescription(embedDesc)
     .addFields(progressFields)
-    .setFooter({ text: `Шаг ${wizard.step} из 10 | У вас есть 2 минуты` })
+    .setFooter({ text: `Шаг ${wizard.step} из 12 | У вас есть 2 минуты` });
 
-  // Используем editReply, так как предыдущий ответ уже был
-  await interaction.update({ embeds: [embed], components: [row] });
+  await interaction.update({ embeds: [embed], components });
   wizard.message = interaction.message;
   wizard.resetTimeout(interaction);
+  wizard.persist();
+}
+
+async function stepSelectSeasonRole(interaction, wizard) {
+  wizard.step = 11;
+  const roleSelect = new RoleSelectMenuBuilder()
+    .setCustomId('setup_season_role')
+    .setPlaceholder('Роль победителя сезона...')
+    .setMinValues(1)
+    .setMaxValues(1);
+
+  const components = [
+    new ActionRowBuilder().addComponents(roleSelect),
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('setup_skip_season')
+        .setLabel('Пропустить')
+        .setStyle(ButtonStyle.Secondary),
+    ),
+  ];
+
+  const embed = new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setTitle('🏆 Шаг 11: Роль победителя сезона')
+    .setDescription(
+      'Выберите роль, которую бот выдаст за **1 место** недельного сезона.\n' +
+      'Можно пропустить и задать позже через `/сезон роль_победителя`.',
+    )
+    .setFooter({ text: 'Шаг 11 из 12 | У вас есть 2 минуты' });
+
+  await interaction.update({ embeds: [embed], components });
+  wizard.message = interaction.message;
+  wizard.resetTimeout(interaction);
+  wizard.persist();
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -499,6 +581,8 @@ async function stepFinalize(interaction, wizard) {
       trigger: wizard.channels.trigger || prevChannels.trigger || null,
       voice_category: wizard.channels.voice_category || prevChannels.voice_category || null,
       welcome: wizard.channels.welcome || prevChannels.welcome || null,
+      ticket_category: wizard.channels.ticket_category || prevChannels.ticket_category || null,
+      season_role: wizard.channels.season_role || prevChannels.season_role || null,
       stats_members_voice: statsMembersVoiceId || prevChannels.stats_members_voice || null,
       stats_bots_voice: statsBotsVoiceId || prevChannels.stats_bots_voice || null,
     });
@@ -626,6 +710,7 @@ export async function handleSetupInteraction(interaction) {
 
       // Сохраняем выбранные роли
       wizard.selectedRoles = interaction.values;
+      wizard.persist();
 
       // Переходим к шагу 3: выбор канала логов
       await stepSelectChannel(
@@ -656,6 +741,7 @@ export async function handleSetupInteraction(interaction) {
 
       // Сохраняем выбранный канал
       wizard.channels[channelKey] = selectedChannelId;
+      wizard.persist();
 
       // Определяем следующий шаг
       const nextSteps = {
@@ -664,14 +750,16 @@ export async function handleSetupInteraction(interaction) {
         mod: { key: 'voice_panel', label: 'Выберите канал для голосовой панели...', title: '🎤 Шаг 6: Выбор канала голосовой панели', desc: 'Выберите канал, в котором будет размещена панель управления голосовыми комнатами.' },
         voice_panel: { key: 'trigger', label: 'Выберите канал создания комнат...', title: '➕ Шаг 7: Канал-триггер комнат', desc: 'Выберите голосовой канал, зайдя в который пользователь автоматически получит приватную комнату.' },
         trigger: { key: 'voice_category', label: 'Выберите категорию для комнат...', title: '📁 Шаг 8: Категория приватных комнат', desc: 'Выберите категорию, внутри которой бот будет создавать приватные голосовые комнаты.' },
-        welcome: null,
-        voice_category: { key: 'welcome', label: 'Выберите канал приветствий...', title: '👋 Шаг 9: Канал приветствий', desc: 'Выберите текстовый канал, куда бот отправит приветствие, если у новичка закрыты личные сообщения.' },
+        voice_category: { key: 'welcome', label: 'Выберите канал приветствий...', title: '👋 Шаг 9: Канал приветствий', desc: 'Выберите текстовый канал, куда бот отправит приветствие новым участникам.' },
+        welcome: { key: 'ticket_category', label: 'Выберите категорию тикетов...', title: '🎫 Шаг 10: Категория тикетов', desc: 'Куда создавать каналы поддержки. Можно пропустить.' },
+        ticket_category: null,
       };
 
       const nextStep = nextSteps[channelKey];
 
-      if (nextStep) {
-        // Есть ещё каналы для выбора
+      if (channelKey === 'ticket_category' || !nextStep) {
+        await stepSelectSeasonRole(interaction, wizard);
+      } else {
         await stepSelectChannel(
           interaction,
           wizard,
@@ -680,11 +768,40 @@ export async function handleSetupInteraction(interaction) {
           nextStep.title,
           nextStep.desc,
         );
-      } else {
-        // Все каналы выбраны — финализируем
-        await stepFinalize(interaction, wizard);
       }
 
+      return true;
+    }
+
+    if (interaction.isRoleSelectMenu?.() && interaction.customId === 'setup_season_role') {
+      const wizard = getWizard(interaction.guildId, interaction.user.id);
+      if (!wizard) {
+        await interaction.reply({
+          content: '❌ **Сессия настройки устарела.** Пожалуйста, начните заново с команды `/setup`.',
+          flags: MessageFlags.Ephemeral,
+        });
+        return true;
+      }
+      wizard.channels.season_role = interaction.values[0];
+      wizard.persist();
+      await stepFinalize(interaction, wizard);
+      return true;
+    }
+
+    if (interaction.isButton() && (interaction.customId === 'setup_skip_ticket' || interaction.customId === 'setup_skip_season')) {
+      const wizard = getWizard(interaction.guildId, interaction.user.id);
+      if (!wizard) {
+        await interaction.reply({
+          content: '❌ **Сессия настройки устарела.** Пожалуйста, начните заново с команды `/setup`.',
+          flags: MessageFlags.Ephemeral,
+        });
+        return true;
+      }
+      if (interaction.customId === 'setup_skip_ticket') {
+        await stepSelectSeasonRole(interaction, wizard);
+      } else {
+        await stepFinalize(interaction, wizard);
+      }
       return true;
     }
 
@@ -732,6 +849,13 @@ export default {
     if (!interaction.guild) {
       return interaction.reply({
         content: '❌ Эта команда доступна только на сервере.',
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
+    if (!isPrimaryGuild(interaction.guildId)) {
+      return interaction.reply({
+        content: '❌ Этот бот обслуживает только основной сервер (`GUILD_ID`).',
         flags: MessageFlags.Ephemeral,
       });
     }

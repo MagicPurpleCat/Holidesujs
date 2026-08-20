@@ -321,6 +321,7 @@ export async function generateProfileImage(data) {
   const clanGap = 50;
 
   let leftBlockHeight = avatarDiameter + gapAfterAvatar + nameFontSize + gapAfterName + nickFontSize + gapAfterNick;
+  if (data.gender && ['male', 'female', 'other'].includes(data.gender)) leftBlockHeight += pillH + 8;
   if (data.clanTag) leftBlockHeight += pillH + clanGap;
   leftBlockHeight += pillH;
 
@@ -343,6 +344,17 @@ export async function generateProfileImage(data) {
   ctx.fillText(trunc(ctx, data.nickname || '', leftW - 40), cx, nickY);
 
   let badgeY = nickY + nickFontSize + gapAfterNick;
+  const genderLabel = ({
+    male: '♂ Мужской',
+    female: '♀ Женский',
+    other: 'Другой',
+  })[data.gender];
+  if (genderLabel) {
+    ctx.font = font(16, true);
+    const gw = ctx.measureText(genderLabel).width + 32;
+    drawPill(ctx, genderLabel, cx - gw / 2, badgeY, 'rgba(255,255,255,0.08)', C.muted);
+    badgeY += 44;
+  }
   if (data.clanTag) {
     ctx.font = font(18, true);
     const clanText = trunc(ctx, data.clanTag, 360);
@@ -503,23 +515,25 @@ export async function generateProfileImage(data) {
 
   const badges = Array.isArray(data.badges) ? data.badges : [];
   const achY = 716;
+  const achBoxY = achY + 26;
+  const achBoxH = 130;
   ctx.fillStyle = C.faint;
   ctx.font = font(15, true);
   ctx.fillText('ДОСТИЖЕНИЯ', rx, achY);
 
-  fillRound(ctx, rx, achY + 26, rw, 110, 22, C.glass2);
-  strokeRound(ctx, rx, achY + 26, rw, 110, 22, C.line);
+  fillRound(ctx, rx, achBoxY, rw, achBoxH, 22, C.glass2);
+  strokeRound(ctx, rx, achBoxY, rw, achBoxH, 22, C.line);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = C.white;
   ctx.font = font(34, true);
-  ctx.fillText(`${Number(data.achievementsCount || badges.length || 0)}`, rx + rw / 2, achY + 78);
+  ctx.fillText(`${Number(data.achievementsCount || badges.length || 0)}`, rx + rw / 2, achBoxY + 42);
   ctx.fillStyle = C.muted;
   ctx.font = font(20);
-  ctx.fillText('Открыто достижений', rx + rw / 2, achY + 112);
+  ctx.fillText('Открыто достижений', rx + rw / 2, achBoxY + 76);
   ctx.fillStyle = C.faint;
-  ctx.font = font(18, true);
-  ctx.fillText('Полный список доступен по кнопке под профилем', rx + rw / 2, achY + 138);
+  ctx.font = font(17, true);
+  ctx.fillText('Полный список доступен по кнопке под профилем', rx + rw / 2, achBoxY + 106);
 
   return canvas.toBuffer('image/png');
 }

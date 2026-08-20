@@ -199,6 +199,7 @@ export class UniversalShardManager {
         GatewayIntentBits.GuildMembers,
         GatewayIntentBits.GuildVoiceStates,
         GatewayIntentBits.GuildMessageReactions,
+        GatewayIntentBits.GuildPresences,
       ],
       partials: [Partials.Message, Partials.Reaction, Partials.User],
     });

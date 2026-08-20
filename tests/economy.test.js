@@ -221,30 +221,30 @@ test('брак записывается по серверу и развод де
   assert.equal(getMarriageRecord(g, a), undefined);
 });
 
-test('каталог содержит ровно 1000 достижений', async () => {
-  const { ACHIEVEMENT_TOTAL } = await import('../modules/progress.js');
-  assert.equal(ACHIEVEMENT_TOTAL, 1000);
+test('каталог содержит тематические достижения', async () => {
+  const { ACHIEVEMENT_TOTAL, ACHIEVEMENTS } = await import('../modules/progress.js');
+  assert.ok(ACHIEVEMENT_TOTAL >= 30);
+  assert.ok(ACHIEVEMENTS.morning_herald);
+  assert.ok(ACHIEVEMENTS.rps_streak);
 });
 
 test('достижения и косметика пишутся один раз', async () => {
-  const { unlockAchievement, grantCosmetic, ownsCosmetic, listAchievements, checkEconomyAchievements } = await import('../modules/progress.js');
+  const { unlockAchievement, grantCosmetic, ownsCosmetic, listAchievements } = await import('../modules/progress.js');
+  const { bumpAchievementProgress } = await import('../modules/achievementsTracker.js');
   const g = 'g-ach';
   const u = 'u-ach';
   ensureUser(u, g);
-  assert.equal(unlockAchievement(u, g, 'rich_10k'), true);
-  assert.equal(unlockAchievement(u, g, 'rich_10k'), false);
+  assert.equal(unlockAchievement(u, g, 'long_story'), true);
+  assert.equal(unlockAchievement(u, g, 'long_story'), false);
   assert.equal(listAchievements(u, g).length, 1);
   grantCosmetic(u, g, 'frame_gold');
   grantCosmetic(u, g, 'frame_gold');
   assert.equal(ownsCosmetic(u, g, 'frame_gold'), true);
 
-  getDb().prepare('UPDATE users SET total_messages = ?, total_reactions_received = ?, level = ? WHERE guild_id = ? AND user_id = ?')
-    .run(1000, 50, 25, g, u);
-  checkEconomyAchievements(u, g);
+  bumpAchievementProgress(u, g, 'brevity_master', 10);
   const keys = listAchievements(u, g).map((a) => a.key);
-  assert.ok(keys.includes('messages_1k'));
-  assert.ok(keys.includes('reputation_50'));
-  assert.ok(keys.includes('level_25'));
+  assert.ok(keys.includes('long_story'));
+  assert.ok(keys.includes('brevity_master'));
 });
 
 test('overallScore нормализует метрики в диапазон 0..10000', async () => {

@@ -4,55 +4,47 @@ import {
 import { getUserLevel } from '../utils/permissions.js';
 import { brandEmbed, COLOR, guildFooter } from '../utils/ui.js';
 
-function buildHelpEmbed(userLevel, guild) {
+const STAFF_CMDS = new Set(['mod', 'history', 'логи', 'панель', 'setup', 'фичи', 'welcome-preview', 'self-roles']);
+
+function buildHelpEmbed(userLevel, guild, commandNames = []) {
+  const publicCmds = commandNames
+    .filter((n) => !STAFF_CMDS.has(n) && n !== 'help')
+    .sort((a, b) => a.localeCompare(b, 'ru'));
+  const staffCmds = commandNames
+    .filter((n) => STAFF_CMDS.has(n))
+    .sort((a, b) => a.localeCompare(b, 'ru'));
+
+  const fmt = (names) => names.map((n) => `\`/${n}\``).join(' · ') || '—';
+
   const embed = brandEmbed({
     color: COLOR.accent,
     title: `Holidesu · ${guild.name}`,
     description:
       'Валюта сервера — **⚡HLD**. Пиши `/` и начни имя команды.\n' +
-      'Баланс, уровень и брак считаются **отдельно на каждом сервере**.',
+      'Бот работает **на одном сервере** (`GUILD_ID`).',
     footer: guildFooter({ guild }, 'помощь'),
     thumbnail: guild.iconURL({ size: 128 }),
   }).addFields(
     {
-      name: 'Экономика',
-      value:
-        '`/баланс` `/pay` `/work` `/квесты` `/сезон`\n' +
-        '`/достижения`\n' +
-        '`/cosmetics` `/shop` `/profile` `/rank` `/топ` `/settings`',
-      inline: false,
-    },
-    {
-      name: 'Игры и люди',
-      value:
-        '`/casino` daily · slot · coinflip · blackjack\n' +
-        '`/marry` `/divorce` `/семья` `/реп` `/meme-gen`\n' +
-        '`/clan` create · shop · wars · bank',
+      name: 'Команды',
+      value: fmt(publicCmds).slice(0, 1020),
       inline: false,
     },
     {
       name: 'Голос и чат',
       value:
         'Зайди в канал создания комнаты → `/room-settings`.\n' +
-        'Фарм ⚡HLD — в войсе **не в соло**. Сообщения дают XP раз в 5 сек.',
-      inline: false,
-    },
-    {
-      name: 'Поддержка',
-      value: '`/verify`  ·  `/ticket setup`  ·  `/ticket close`  ·  `/giveaway start`',
+        'Фарм ⚡HLD — в войсе **не в соло**, без mute. После ~20 мин тишины ставка падает.',
       inline: false,
     },
   );
 
-  if (userLevel >= 1) {
-    const lines = [
-      '`/mod` warn · mute · unmute · kick · ban · unban · warns',
-      '`/history` `/логи` `/панель`',
-    ];
-    if (userLevel >= 2) {
-      lines.push('`/setup` мастер сервера  ·  `/фичи` модули бота  ·  `/welcome-preview`  ·  `/self-roles setup`');
-    }
-    embed.addFields({ name: 'Персонал', value: lines.join('\n'), inline: false });
+  if (userLevel >= 1 && staffCmds.length) {
+    embed.addFields({
+      name: 'Персонал',
+      value: fmt(staffCmds).slice(0, 1020),
+      inline: false,
+    });
   }
 
   return embed;
@@ -60,8 +52,11 @@ function buildHelpEmbed(userLevel, guild) {
 
 async function runHelp(interaction) {
   const userLevel = getUserLevel(interaction.user.id, interaction.guild);
+  const names = interaction.client?.commands
+    ? [...interaction.client.commands.keys()]
+    : [];
   await interaction.reply({
-    embeds: [buildHelpEmbed(userLevel, interaction.guild)],
+    embeds: [buildHelpEmbed(userLevel, interaction.guild, names)],
   });
 }
 

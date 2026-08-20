@@ -564,6 +564,37 @@ export function initDatabase() {
       unlocked_at TEXT NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (guild_id, user_id, key)
     );
+    CREATE TABLE IF NOT EXISTS achievement_progress (
+      guild_id TEXT NOT NULL DEFAULT '',
+      user_id TEXT NOT NULL,
+      key TEXT NOT NULL,
+      progress INTEGER NOT NULL DEFAULT 0,
+      unlocked INTEGER NOT NULL DEFAULT 0,
+      meta TEXT NOT NULL DEFAULT '{}',
+      last_updated TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (guild_id, user_id, key)
+    );
+    CREATE TABLE IF NOT EXISTS achievement_daily (
+      guild_id TEXT NOT NULL DEFAULT '',
+      user_id TEXT NOT NULL,
+      day_key TEXT NOT NULL,
+      messages INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (guild_id, user_id, day_key)
+    );
+    CREATE TABLE IF NOT EXISTS achievement_flags (
+      guild_id TEXT NOT NULL DEFAULT '',
+      flag_key TEXT NOT NULL,
+      day_key TEXT NOT NULL,
+      value TEXT NOT NULL DEFAULT '1',
+      PRIMARY KEY (guild_id, flag_key, day_key)
+    );
+    CREATE TABLE IF NOT EXISTS message_reaction_stats (
+      guild_id TEXT NOT NULL DEFAULT '',
+      message_id TEXT NOT NULL,
+      author_id TEXT NOT NULL,
+      total INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (guild_id, message_id)
+    );
     CREATE TABLE IF NOT EXISTS tickets (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       guild_id TEXT NOT NULL,
@@ -745,6 +776,7 @@ function ensureNewProgressColumns() {
   add('last_work_at', 'last_work_at TEXT DEFAULT NULL');
   add('equipped_frame', 'equipped_frame TEXT DEFAULT NULL');
   add('equipped_background', 'equipped_background TEXT DEFAULT NULL');
+  add('donate_balance', 'donate_balance INTEGER NOT NULL DEFAULT 0');
 
   if (tableExists('clans')) {
     const clanInfo = db.prepare("PRAGMA table_info('clans')").all();

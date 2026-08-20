@@ -31,6 +31,7 @@ import serverStatsCmd from './server-stats.js';
 import achievementsCmd from './achievements.js';
 import welcomePreviewCmd from './welcome-preview.js';
 import selfRolesCmd from './self-roles.js';
+import minigames from './minigames.js';
 
 export const allCommands = [
   balanceCmd, shopCmd, profileCmd, casinoCmd, clanCmd,
@@ -41,4 +42,5 @@ export const allCommands = [
   moderationCmd, repCmd, repAlias, payCmd, featuresCmd,
   questsCmd, workCmd, familyCmd, ticketCmd, giveawayCmd,
   cosmeticsCmd, cosmeticsAlias, seasonCmd, serverStatsCmd, achievementsCmd, welcomePreviewCmd, selfRolesCmd,
+  ...minigames,
 ];

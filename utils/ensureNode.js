@@ -184,6 +184,18 @@ function relaunchNode(nodePath, startScript, extraArgs, projectRoot) {
   });
 }
 
+function isContainerRuntime() {
+  try {
+    if (process.env.HOLIDESU_SKIP_NODE_ENSURE === '1') return true;
+    if (process.env.DOCKER === '1' || process.env.container) return true;
+    if (process.env.KUBERNETES_SERVICE_HOST) return true;
+    if (fs.existsSync('/.dockerenv')) return true;
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
 /**
  * @param {object} options
  * @param {string} options.projectRoot
@@ -200,6 +212,16 @@ export function ensureNodeVersion({ projectRoot, startScript, argv = [], log }) 
 
   if (nodeMeetsRequirement(current, minVersion)) {
     log(`Node.js ${current} — подходит (нужно >= ${minVersion})`, 'green');
+    return true;
+  }
+
+  // В Docker/K8s нельзя ставить Node через winget/choco — не валим контейнер в restart loop
+  if (isContainerRuntime()) {
+    log(
+      `Node.js ${current} < ${minVersion}, но автообновление в контейнере отключено. `
+        + 'Собери образ на Node >= 22.5 (node:sqlite). Продолжаю запуск…',
+      'yellow',
+    );
     return true;
   }
 

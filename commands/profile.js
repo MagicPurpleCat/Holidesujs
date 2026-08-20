@@ -156,6 +156,7 @@ async function collectProfileData(target, member, db, guildId, viewerId = null) 
     messages: activity?.messages_count || user.total_messages || 0,
     reputation: user.total_reactions_received || 0,
     statusText: user.status_text || '',
+    gender: user.gender || null,
     marriageWith,
     marriagePartnerAvatarUrl,
     favoritePerson: marriageWith, // Используем партнера как "любимого человека"

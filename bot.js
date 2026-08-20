@@ -8,6 +8,7 @@ import { initializeOwnerRights } from './modules/ownerInit.js';
 import { UniversalShardManager } from './src/core/shard-manager.js';
 import { FALLBACK_OWNER_ID, getGuildConfig, getTriggerChannelId } from './utils/guildConfig.js';
 import { logInfo, logErr, logFatal } from './utils/botLog.js';
+import { enforceSingleGuild, isPrimaryGuild } from './utils/singleGuild.js';
 import { registerInteractionHandler } from './handlers/interactions.js';
 import { registerGuildEvents, startVoiceFarmLoop, restoreVoiceFarmSessions } from './handlers/guildEvents.js';
 import { startDbBackupLoop } from './modules/dbBackup.js';
@@ -19,6 +20,7 @@ import { startServerStatsDailyLoop } from './modules/serverStatsDaily.js';
 import { initServerVoiceStats } from './modules/serverVoiceStats.js';
 import { initSelfRolesForGuild } from './modules/selfRolesPanel.js';
 import { allCommands } from './commands/index.js';
+import { setAchievementNotifyClient } from './modules/progress.js';
 
 initDatabase();
 
@@ -57,6 +59,8 @@ shardManager.start(
   async (shardId, client) => {
     try {
       await setupShard(shardId, client);
+      await enforceSingleGuild(client, shardId);
+      setAchievementNotifyClient(client);
 
       if (client.user) {
         await client.user.setActivity('⚡HLD фарм | /помощь', { type: ActivityType.Playing });
@@ -64,11 +68,14 @@ shardManager.start(
 
       initializeOwnerRights(client, FALLBACK_OWNER_ID);
       for (const guild of client.guilds.cache.values()) {
+        if (!isPrimaryGuild(guild.id)) continue;
         const cfg = getGuildConfig(guild.id);
         if (cfg.ownerId) initializeOwnerRights(client, cfg.ownerId, guild.id);
       }
 
       for (const [, guild] of client.guilds.cache) {
+        if (!isPrimaryGuild(guild.id)) continue;
+
         const triggerId = getTriggerChannelId(guild.id);
         if (!triggerId) {
           logErr(
@@ -97,7 +104,7 @@ shardManager.start(
         logInfo(shardId, 'FARM', `Восстановлено voice-сессий: ${restoredFarmers}`);
       }
 
-      logInfo(shardId, 'MAIN', `Полностью готов. Серверов: ${client.guilds.cache.size}.`);
+      logInfo(shardId, 'MAIN', `Полностью готов. Серверов: ${client.guilds.cache.size} (односерверный режим).`);
     } catch (err) {
       logErr(shardId, 'MAIN', `Ошибка при инициализации: ${err.message}`);
     }
