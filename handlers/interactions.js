@@ -30,7 +30,11 @@ import {
   handleRoomLimitModal,
   handleRoomBitrateModal,
 } from '../commands/room-settings.js';
-import { handleSetupInteraction } from '../commands/setup.js';
+import {
+  handleSetupInteraction,
+  handleSetupModal,
+} from '../commands/setup.js';
+import { handleLogsPanelInteraction } from '../commands/logs.js';
 import { handleRoleCreateModal } from '../commands/role.js';
 import { buildSettingsMessage } from '../commands/settings.js';
 import {
@@ -45,8 +49,14 @@ import {
   handlePriceModal,
 } from '../modules/roleManager.js';
 import { handleVerificationButton, handleVerificationModal } from '../modules/verification.js';
-import { handleMarryButton } from '../modules/relationships.js';
-import { handleClanWarButton } from '../commands/clan.js';
+import {
+  handleMarriagePanelInteraction,
+  handleMarriageModal,
+} from '../commands/marry.js';
+import {
+  handleClanPanelInteraction,
+  handleClanModal,
+} from '../commands/clan.js';
 import { handleBlackjackButton } from '../commands/casino.js';
 import { handleTicketButton, handleTicketClose } from '../commands/ticket.js';
 import { handleGiveawayButton } from '../commands/giveaway.js';
@@ -97,21 +107,34 @@ export function createInteractionHandler(shardId, client) {
         return;
       }
 
-      if (interaction.isModalSubmit() || interaction.isStringSelectMenu() || interaction.isChannelSelectMenu()) {
+      // Setup hub (su:…) — buttons / selects / modals / role & channel menus
+      if (interaction.customId?.startsWith('su:')) {
         try {
-          const setupHandled = await handleSetupInteraction(interaction);
-          if (setupHandled) return;
+          const handled = interaction.isModalSubmit()
+            ? await handleSetupModal(interaction)
+            : await handleSetupInteraction(interaction);
+          if (handled) return;
         } catch (e) {
-          logErr(shardId, 'SETUP', `Ошибка handleSetupInteraction: ${e.message}`);
+          logErr(shardId, 'SETUP', e.message);
+        }
+      }
+
+      // Logs hub (lg:…)
+      if (interaction.customId?.startsWith('lg:')) {
+        try {
+          const handled = await handleLogsPanelInteraction(interaction);
+          if (handled) return;
+        } catch (e) {
+          logErr(shardId, 'LOGS', e.message);
         }
       }
 
       if (interaction.isButton()) {
         const customId = interaction.customId || '';
 
-        if (customId.startsWith('clan_war_')) {
-          const handled = await handleClanWarButton(interaction).catch((e) => {
-            logErr(shardId, 'CLAN_WAR', e.message);
+        if (customId.startsWith('cl:') || customId.startsWith('clan_war_')) {
+          const handled = await handleClanPanelInteraction(interaction).catch((e) => {
+            logErr(shardId, 'CLAN', e.message);
             return false;
           });
           if (handled) return;
@@ -149,8 +172,8 @@ export function createInteractionHandler(shardId, client) {
           if (handled) return;
         }
 
-        if (customId.startsWith('marry_')) {
-          const handled = await handleMarryButton(interaction).catch((e) => {
+        if (customId.startsWith('mr:') || customId.startsWith('marry_')) {
+          const handled = await handleMarriagePanelInteraction(interaction).catch((e) => {
             logErr(shardId, 'MARRY', e.message);
             return false;
           });
@@ -176,7 +199,7 @@ export function createInteractionHandler(shardId, client) {
                 db.prepare(`UPDATE user_settings SET ${col} = ? WHERE user_id = ?`).run(newVal, userId);
               }
             }
-            await interaction.update(buildSettingsMessage(interaction.user.id, interaction.guildId));
+            await interaction.update(buildSettingsMessage(interaction.user.id, interaction.guildId, interaction));
           } catch (e) {
             logErr(shardId, 'SETTINGS', e.message);
           }
@@ -309,6 +332,22 @@ export function createInteractionHandler(shardId, client) {
           return;
         }
 
+        if (customId.startsWith('cl:modal:')) {
+          const handled = await handleClanModal(interaction).catch((e) => {
+            logErr(shardId, 'CLAN', e.message);
+            return false;
+          });
+          if (handled) return;
+        }
+
+        if (customId.startsWith('mr:modal:')) {
+          const handled = await handleMarriageModal(interaction).catch((e) => {
+            logErr(shardId, 'MARRY', e.message);
+            return false;
+          });
+          if (handled) return;
+        }
+
         if ([
           'ap_add_balance_modal',
           'ap_remove_balance_modal',
@@ -359,6 +398,14 @@ export function createInteractionHandler(shardId, client) {
           if (topHandled) return;
         }
 
+        if (customId.startsWith('cl:')) {
+          const handled = await handleClanPanelInteraction(interaction).catch((e) => {
+            logErr(shardId, 'CLAN', e.message);
+            return false;
+          });
+          if (handled) return;
+        }
+
         if (customId === 'sale_select_role') {
           await handleSaleSelect(interaction).catch(() => {});
           return;
@@ -378,6 +425,14 @@ export function createInteractionHandler(shardId, client) {
         }
         if (selectId.startsWith('ap:user:')) {
           await handleAdminPanelButtons(interaction).catch((e) => logErr(shardId, 'ADMIN', e.message));
+          return;
+        }
+        if (selectId.startsWith('cl:')) {
+          await handleClanPanelInteraction(interaction).catch((e) => logErr(shardId, 'CLAN', e.message));
+          return;
+        }
+        if (selectId.startsWith('mr:')) {
+          await handleMarriagePanelInteraction(interaction).catch((e) => logErr(shardId, 'MARRY', e.message));
         }
       }
     } catch (error) {

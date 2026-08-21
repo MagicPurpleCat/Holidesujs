@@ -185,7 +185,7 @@ export function buildServerSection(interaction) {
   const embed = brandEmbed({
     color: COLOR.purple,
     title: 'Сервер',
-    description: 'Мастер `/setup` и модули бота. Выбери фичу в списке — она переключится.',
+    description: 'Конфиг сервера и модули. Открой `/setup` или нажми кнопку ниже. Фичу можно переключить в списке.',
     footer: navFooter(interaction, 'сервер'),
   }).addFields({
     name: 'Модули',
@@ -207,7 +207,8 @@ export function buildServerSection(interaction) {
 
   const row1 = new ActionRowBuilder().addComponents(featureSelect);
   const row2 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(AP.setup).setLabel('Мастер /setup').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(AP.setup).setLabel('Открыть /setup').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(AP.logs).setLabel('Открыть /логи').setStyle(ButtonStyle.Secondary),
   );
 
   return { embeds: [embed], components: [row1, row2, backCloseRow(AP.home)] };

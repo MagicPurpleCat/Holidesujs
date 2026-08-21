@@ -686,3 +686,20 @@ export async function runSetup(interaction) {
   }
   return true;
 }
+
+export async function runLogs(interaction) {
+  if (!(await requireLevel(interaction, 2))) return true;
+  try {
+    const { buildHomeView } = await import('../logs/views.js');
+    const view = buildHomeView(interaction);
+    await interaction.update({
+      content: null,
+      embeds: view.embeds,
+      components: view.components,
+    });
+  } catch (e) {
+    console.error('[ADMIN] logs:', e.message);
+    return interaction.update(denyView(interaction, 'Не удалось открыть `/логи`.'));
+  }
+  return true;
+}

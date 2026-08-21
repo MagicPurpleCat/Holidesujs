@@ -227,30 +227,71 @@ function shouldLog(config, eventLevel) {
 }
 
 /**
- * Определяет, в какие каналы отправить событие в зависимости от его уровня.
- * Если у сервера настроен общий канал (channel_id) — используем его.
- * Если настроены отдельные каналы — маршрутизируем по уровню.
- * @param {Object} config
- * @param {string} eventLevel
- * @returns {string[]} — массив ID каналов
+ * Определяет, в какие каналы отправить событие.
+ * Семантика:
+ *   #логи-все        ← all + important + moderation
+ *   #логи-важные     ← important + moderation
+ *   #логи-модерация  ← только moderation
+ * Если tier-каналов нет — fallback на channel_id.
  */
 function channelsForEvent(config, eventLevel) {
   if (!config) return [];
 
-  // Если есть отдельные каналы — маршрутизируем
   const channels = [];
-  if (config.channel_all && eventLevel === 'all') channels.push(config.channel_all);
-  if (config.channel_important && (eventLevel === 'important' || eventLevel === 'all')) channels.push(config.channel_important);
-  if (config.channel_moderation && (eventLevel === 'moderation' || eventLevel === 'important' || eventLevel === 'all')) channels.push(config.channel_moderation);
+  if (config.channel_all && ['all', 'important', 'moderation'].includes(eventLevel)) {
+    channels.push(config.channel_all);
+  }
+  if (config.channel_important && ['important', 'moderation'].includes(eventLevel)) {
+    channels.push(config.channel_important);
+  }
+  if (config.channel_moderation && eventLevel === 'moderation') {
+    channels.push(config.channel_moderation);
+  }
 
-  // Если отдельных каналов нет, но есть общий канал — используем его
   if (channels.length === 0 && config.channel_id) {
     channels.push(config.channel_id);
   }
 
-  // Дедупликация
   return [...new Set(channels)];
 }
+
+/** Частичное обновление конфига без затирания полей. */
+export function patchLogConfig(guildId, patch = {}) {
+  const existing = getLogConfig(guildId) || {};
+  saveLogConfig(guildId, { ...existing, ...patch });
+}
+
+/** Готовность системы логов для UI. */
+export function getLogChecklist(guildId) {
+  const cfg = getLogConfig(guildId);
+  if (!cfg) {
+    return {
+      ready: false,
+      level: 'off',
+      hasAnyChannel: false,
+      items: [],
+    };
+  }
+  const hasAnyChannel = Boolean(
+    cfg.channel_id || cfg.channel_all || cfg.channel_important || cfg.channel_moderation,
+  );
+  const items = [
+    { key: 'level', label: 'Уровень', ok: cfg.level && cfg.level !== 'off', value: levelLabel(cfg.level) },
+    { key: 'channel_all', label: 'Канал «все»', ok: Boolean(cfg.channel_all), value: cfg.channel_all ? `<#${cfg.channel_all}>` : '—' },
+    { key: 'channel_important', label: 'Канал «важные»', ok: Boolean(cfg.channel_important), value: cfg.channel_important ? `<#${cfg.channel_important}>` : '—' },
+    { key: 'channel_moderation', label: 'Канал «модерация»', ok: Boolean(cfg.channel_moderation), value: cfg.channel_moderation ? `<#${cfg.channel_moderation}>` : '—' },
+    { key: 'fallback', label: 'Общий канал', ok: Boolean(cfg.channel_id), value: cfg.channel_id ? `<#${cfg.channel_id}>` : '—' },
+    { key: 'ping_target', label: 'Пинг цели', ok: Boolean(cfg.ping_target), value: cfg.ping_target ? 'вкл' : 'выкл' },
+    { key: 'ping_actor', label: 'Пинг модератора', ok: Boolean(cfg.ping_actor), value: cfg.ping_actor ? 'вкл' : 'выкл' },
+  ];
+  return {
+    ready: hasAnyChannel && cfg.level !== 'off',
+    level: cfg.level || 'off',
+    hasAnyChannel,
+    items,
+  };
+}
+
 
 /**
  * Отправляет лог-событие.
@@ -478,10 +519,20 @@ export async function setupLogChannels(guild) {
     pingRoleAll: pingRoles.all?.id || null,
     pingRoleImportant: pingRoles.important?.id || null,
     pingRoleModeration: pingRoles.moderation?.id || null,
-    pingTarget: 1,
-    pingActor: 1,
+    pingTarget: 0,
+    pingActor: 0,
   };
   saveLogConfig(guild.id, config);
+
+  // Синхронизация с /setup → channels.log (сезоны, чеклист)
+  try {
+    const { patchGuildChannels } = await import('../utils/guildConfig.js');
+    if (config.channelId) {
+      patchGuildChannels(guild.id, { log: config.channelId });
+    }
+  } catch {
+    /* ignore */
+  }
 
   return { roles, pingRoles, channels };
 }
@@ -552,6 +603,14 @@ export function setLogLevel(guildId, level) {
 export function setLogChannel(guildId, channelId) {
   const existing = getLogConfig(guildId) || {};
   saveLogConfig(guildId, { ...existing, channelId, level: existing.level || LOG_LEVELS.all });
+  try {
+    // sync без циклического await — sync import may load guildConfig
+    import('../utils/guildConfig.js').then(({ patchGuildChannels }) => {
+      patchGuildChannels(guildId, { log: channelId || null });
+    }).catch(() => {});
+  } catch {
+    /* ignore */
+  }
 }
 
 /**
@@ -574,6 +633,8 @@ export default {
   getLogConfig,
   clearLogConfigCache,
   saveLogConfig,
+  patchLogConfig,
+  getLogChecklist,
   logEvent,
   logChannelSetup: setupLogChannels,
   setLogLevel,

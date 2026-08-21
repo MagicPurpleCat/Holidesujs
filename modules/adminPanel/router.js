@@ -30,6 +30,7 @@ import {
   handleModAction,
   toggleFeature,
   runSetup,
+  runLogs,
 } from './actions.js';
 
 const PICK_ACTIONS = new Set([
@@ -177,6 +178,9 @@ export async function handleAdminPanelButtons(interaction) {
 
   if (id === AP.setup) {
     return runSetup(interaction);
+  }
+  if (id === AP.logs) {
+    return runLogs(interaction);
   }
 
   const pickAction = PICK_ID_TO_ACTION[id];

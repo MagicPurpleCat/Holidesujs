@@ -39,6 +39,7 @@ export const AP = {
   revokeSelect: 'ap:revoke_select',
   featureSelect: 'ap:feature_select',
   setup: 'ap:setup',
+  logs: 'ap:logs',
   statsDetail: 'ap:stats:detail',
   statsTop: 'ap:stats:top',
   statsPunish: 'ap:stats:punish',

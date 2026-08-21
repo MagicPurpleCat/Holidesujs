@@ -290,6 +290,29 @@ export const ACHIEVEMENTS = Object.freeze({
     description: '24 часа на сервере без единого сообщения.',
     target: 1,
   },
+
+  // ── Кланы / брак ─────────────────────────────────────────────────
+  clan_founder: {
+    name: 'Основатель клана',
+    emoji: '🏰',
+    category: 'engagement',
+    description: 'Создай свой клан.',
+    target: 1,
+  },
+  clan_war_win: {
+    name: 'Победа в войне',
+    emoji: '⚔️',
+    category: 'engagement',
+    description: 'Победи в клановой войне со ставкой.',
+    target: 1,
+  },
+  first_marriage: {
+    name: 'Первый брак',
+    emoji: '💍',
+    category: 'engagement',
+    description: 'Поженись на сервере.',
+    target: 1,
+  },
 });
 
 export const ACHIEVEMENT_CATEGORIES = Object.freeze({

@@ -571,11 +571,12 @@ function registerAuditAndLogEvents(client, shardId) {
         color: meta.color,
         fields: [
           { name: '🎯 Цель', value: `<@${auditEntry.targetId}>` || targetName, inline: true },
-          { name: '🛠 Модератор', value: executor, inline: true },
+          { name: '🛠 Модератор', value: auditEntry.executor?.id ? `<@${auditEntry.executor.id}>` : executor, inline: true },
           { name: '📄 Причина', value: reason, inline: false },
         ],
         targetId: auditEntry.targetId,
         targetName,
+        actorId: auditEntry.executor?.id || null,
       });
     } catch (err) {
       logErr(shardId, 'LOG_MODERATION', err.message);
