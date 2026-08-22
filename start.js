@@ -78,7 +78,7 @@ function ensureModules() {
     );
     process.exit(1);
   }
-  log(`node:sqlite — ок`, COLOR_GREEN);
+  log(`node:sqlite - ок`, COLOR_GREEN);
 
   let missingRequired = required.filter((name) => !canLoad(name));
   let missingOptional = optional.filter((name) => !canLoad(name));
